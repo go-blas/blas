@@ -1,0 +1,237 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Coverage policy, as in go-ndarray/ndarray (whose GEMM this repository took over).
+#
+# A single `go test -coverpkg` run cannot reach every architecture's wrapper:
+# each GOARCH compiles exactly one gemm_<arch>.go. So:
+#   * the `test` gate runs the whole module, kernels included, on the amd64
+#     hosts (ubuntu, windows) and the arm64 host (macos) and holds it to 100% of
+#     the blocks: the API (blas, netlib), the checks, the reference ports and the
+#     driver, plus the one architecture's kernel wrapper that compiles there;
+#   * the generated Plan 9 assembly carries no Go statements, so it is not
+#     statement-covered. The per-arch jobs (arch-native, arch-qemu) regenerate
+#     the committed .s with go-asmgen and fail if it is stale, vet it (asmdecl
+#     checks every name and offset(FP)), build it, and RUN the suite: the GEMM
+#     micro-kernel tests compare each kernel with the scalar oracle, and the
+#     public API tests compare the routines with a math/big oracle against their
+#     stated error bound, on that architecture's kernel.
+#   * under qemu the riscv64 lane runs with V, the loong64 lane on la464
+#     (LSX+LASX) and the s390x lane on max (VX+VXE), and each FAILS if its CPU
+#     does not report the extension (BLAS_REQUIRE_RVV / _LASX / _VXE): a lane
+#     that only ever tested the scalar fallbacks is the failure this rules out.
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.3
+      - run: go version
+      # .gitattributes forces LF, so gofmt is exact on Windows too.
+      - name: gofmt must print nothing
+        shell: bash
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then echo "::error::gofmt -l lists: $out"; exit 1; fi
+      - run: go vet ./...
+      - run: go build ./...
+      - name: Test + 100% coverage gate
+        shell: bash
+        run: |
+          COVERPKG=$(go list ./... | paste -sd, -)
+          go test -race -coverpkg="$COVERPKG" -coverprofile=cover.out ./...
+          go tool cover -func=cover.out | tail -n 40
+          # Count the uncovered blocks: `go tool cover -func` rounds to one
+          # decimal, and a gate on its total passed at 99.98% with two
+          # statements never run.
+          go run github.com/go-fleettools/fleettools/cmd/covblocks@v0.27.0 cover.out
+
+  # The guard mutation check: every `// guard` line of the library, disabled in
+  # turn, must fail the tests by an assertion (not by a panic, not pass).
+  guards:
+    name: guards killed by mutation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.3
+      - run: cd internal/cmd && go run ./guardmut -root ../..
+
+  # Fuzz smoke: every target for a few seconds, with the committed corpus
+  # (testdata/fuzz) replayed first by `go test`.
+  fuzz:
+    name: fuzz smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.3
+      - run: cd internal/cmd && go run ./fuzzall -root ../.. -time 10s
+
+  # Known vulnerabilities in what the module imports and in the standard
+  # library it is built with.
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.3
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+  # Native per-arch execution. amd64/arm64 have GitHub-hosted runners, so the
+  # generated assembly runs natively. Each regenerates the committed .s via
+  # go-asmgen and fails if it is stale, then vets/builds/runs the suite.
+  arch-native:
+    name: arch ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    label: amd64, regen: amd64 }
+          - { os: ubuntu-24.04-arm, label: arm64, regen: arm64 }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.3
+      - run: go env GOARCH
+      - name: Regenerate committed assembly and check it is current
+        run: |
+          ( cd internal/kernels/asmgen/${{ matrix.regen }} && GOFLAGS=-mod=mod go run gen.go )
+          mv internal/kernels/asmgen/${{ matrix.regen }}/sum_${{ matrix.regen }}.s \
+             internal/kernels/sum_${{ matrix.regen }}.s
+          git diff --exit-code -- internal/kernels/sum_${{ matrix.regen }}.s || {
+            echo "::error::generated ${{ matrix.regen }} assembly is stale; run go generate and commit"; exit 1; }
+      - name: Vet (asmdecl) + build + run
+        run: |
+          go vet ./...
+          go build ./...
+          go test ./...
+
+  # qemu-user execution for the targets without a hosted runner, plus 32-bit
+  # arm. -short keeps the big.Float oracle's largest products out of the
+  # emulated lanes (the oracle costs ~100 ns a multiply natively and far more
+  # emulated); every kernel path, every transpose and every guard still runs.
+  arch-qemu:
+    name: arch ${{ matrix.goarch }} (qemu)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # V enabled: qemu's default riscv64 CPU has none. BLAS_REQUIRE_RVV
+          # makes a CPU without V fail the lane (TestRVVWhenRequired).
+          - { goarch: riscv64, qemu: qemu-riscv64-static, cpu: "rv64,v=true,vlen=256", require: BLAS_REQUIRE_RVV }
+          # la464 has LSX and LASX; BLAS_REQUIRE_LASX makes a CPU that does
+          # not report LASX fail the lane (TestLASXWhenRequired).
+          - { goarch: loong64, qemu: qemu-loongarch64-static, cpu: "la464", require: BLAS_REQUIRE_LASX }
+          - { goarch: ppc64le, qemu: qemu-ppc64le-static }
+          # max includes z14's vector enhancements (VXE), which the float32
+          # kernel needs; BLAS_REQUIRE_VXE fails the lane without them.
+          - { goarch: s390x,   qemu: qemu-s390x-static, cpu: "max", require: BLAS_REQUIRE_VXE }
+          # 32-bit: int is 32 bits, so the overflow-safe size arithmetic of
+          # the argument checks is exercised.
+          - { goarch: arm,     qemu: qemu-arm-static }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.3
+      # `qemu-user-static` is a virtual package on Ubuntu 26.04 and apt refuses to
+      # choose a provider; `qemu-user` ships the dynamic `qemu-<arch>` that
+      # `go test -exec` needs, so both names are accepted below
+      # (go-tex/engine#645 has the account).
+      - name: install qemu user-mode emulators
+        timeout-minutes: 10
+        run: sudo apt-get update && sudo apt-get install -y qemu-user qemu-user-binfmt
+      - name: Regenerate committed assembly and check it is current
+        if: matrix.goarch == 'ppc64le' || matrix.goarch == 'loong64' || matrix.goarch == 'riscv64' || matrix.goarch == 's390x'
+        run: |
+          ( cd internal/kernels/asmgen/${{ matrix.goarch }} && go run . )
+          mv internal/kernels/asmgen/${{ matrix.goarch }}/sum_${{ matrix.goarch }}.s internal/kernels/sum_${{ matrix.goarch }}.s
+          git diff --exit-code -- internal/kernels/sum_${{ matrix.goarch }}.s || {
+            echo "::error::generated ${{ matrix.goarch }} assembly is stale; run go generate and commit"; exit 1; }
+      - name: Vet + test under qemu (${{ matrix.goarch }})
+        run: |
+          base="${{ matrix.qemu }}"
+          q=""
+          for cand in "$base" "${base%-static}"; do
+            command -v "$cand" >/dev/null 2>&1 && q="$cand" && break
+          done
+          # A missing emulator FAILS this lane: a lane that reports success for an
+          # architecture it never ran is the one outcome this matrix rules out.
+          if [ -z "$q" ]; then
+            echo "::error::no qemu user emulator for ${{ matrix.goarch }} (looked for $base and ${base%-static})"
+            exit 1
+          fi
+          if [ -n "${{ matrix.cpu }}" ]; then
+            export QEMU_CPU="${{ matrix.cpu }}"
+            export ${{ matrix.require }}=1
+          fi
+          echo "running ${{ matrix.goarch }} under $q (QEMU_CPU=${QEMU_CPU:-default})"
+          GOARCH=${{ matrix.goarch }} go test -short -exec="$q" ./...
+
+  # 386 runs natively on the amd64 runner (the kernel executes 32-bit x86
+  # binaries), not under qemu-i386, whose emulation loses x87/SSE state across
+  # preemption. It is the second 32-bit word-size lane, beside arm.
+  arch-386:
+    name: arch 386
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.3
+      - name: Vet + test (GOARCH=386)
+        run: |
+          GOARCH=386 go vet ./...
+          GOARCH=386 go test ./...
+
+  # Every GOOS/GOARCH pair Go supports must at least compile the tests: a test
+  # that does not compile on a target is a test that never runs there.
+  cross-compile:
+    name: compile tests on every target
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.3
+      - name: go test -c (go vet on android/ios) for each go tool dist list pair
+        run: |
+          fail=0
+          for t in $(go tool dist list); do
+            os=${t%/*}; arch=${t#*/}
+            # android/ios refuse to build without a cgo linker, even for vet;
+            # with cgo nominally on and CC=false, vet type-checks the package
+            # and its tests (there is no import "C" to compile).
+            case $os in android|ios) mode=vet ;; *) mode=test ;; esac
+            for p in $(go list ./...); do
+              if [ $mode = test ]; then
+                out=$(CGO_ENABLED=0 GOOS=$os GOARCH=$arch go test -c -o /dev/null "$p" 2>&1) || { echo "::error::$t $p: $out"; fail=1; }
+              else
+                out=$(CGO_ENABLED=1 CC=false GOOS=$os GOARCH=$arch go vet "$p" 2>&1) || { echo "::error::$t $p: $out"; fail=1; }
+              fi
+            done
+          done
+          exit $fail
