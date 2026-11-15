@@ -161,7 +161,7 @@ returns.
 
    *Bounds*, asserted against the 256-bit oracle for every combination of side,
    uplo, trans and diag, padded leading dimensions, zero dimensions, `alpha = 0`,
-   `beta = 0` (C holding NaN), three block sizes, `float32` and `float64`, with NaN
+   `beta = 0` (C holding NaN), two block sizes, `float32` and `float64`, with NaN
    in every element the routine must not read (the other triangle, the diagonal of
    a unit triangle) so a routine that reads one fails by its result; the other
    triangle of C is asserted untouched. With `u` the unit roundoff, `gamma_k =

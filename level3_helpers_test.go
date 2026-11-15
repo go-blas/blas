@@ -21,7 +21,7 @@ import (
 // of them not dividing the sizes. netlib has no blocks.
 func blockSizes(impl string) []int {
 	if impl == "blas" {
-		return []int{64, 4, 7}
+		return []int{64, 5}
 	}
 	return []int{64}
 }

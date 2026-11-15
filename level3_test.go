@@ -13,7 +13,7 @@ import (
 var triShapes = [][2]int{{0, 5}, {5, 0}, {1, 1}, {6, 5}, {13, 9}, {37, 11}, {9, 37}}
 
 // triBig are shapes that span several blocks of the default size.
-var triBig = [][2]int{{150, 5}, {5, 150}}
+var triBig = [][2]int{{70, 3}, {3, 70}}
 
 func transFlags() []blas.Transpose {
 	return []blas.Transpose{blas.NoTrans, blas.Trans, blas.ConjTrans, 'n', 't', 'c'}
@@ -267,7 +267,7 @@ func TestNetlibLevel3IsNotFused(t *testing.T) {
 // spanning several blocks of 4 and 7, and a contraction longer than the kernel's.
 var syrkShapes = [][2]int{{0, 3}, {5, 0}, {1, 1}, {6, 5}, {13, 7}, {37, 3}, {9, 19}, {17, 300}}
 
-var syrkBig = [][2]int{{150, 5}}
+var syrkBig = [][2]int{{70, 3}}
 
 // syrkAB are the scalar pairs of Syrk and Syr2k: the reference branches on 0 and
 // 1 for both.

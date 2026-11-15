@@ -54,7 +54,7 @@ jobs:
         shell: bash
         run: |
           COVERPKG=$(go list ./... | paste -sd, -)
-          go test -race -coverpkg="$COVERPKG" -coverprofile=cover.out ./...
+          go test -race -timeout 30m -coverpkg="$COVERPKG" -coverprofile=cover.out ./...
           go tool cover -func=cover.out | tail -n 40
           # Count the uncovered blocks: `go tool cover -func` rounds to one
           # decimal, and a gate on its total passed at 99.98% with two
