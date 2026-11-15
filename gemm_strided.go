@@ -55,22 +55,12 @@ func gemmStrided[T real](name string, m, n, k int, alpha T, a []T, rsa, csa int,
 		stridedRef(m, n, k, alpha, a, rsa, csa, b, rsb, csb, beta, c, rsc, csc)
 		return nil
 	}
-	// C := beta*C, without reading C when beta is 0 (it may hold NaN).
-	for j := 0; j < n; j++ {
-		for i := 0; i < m; i++ {
-			switch beta {
-			case 0:
-				c[i*rsc+j*csc] = 0
-			case 1:
-			default:
-				c[i*rsc+j*csc] *= beta
-			}
-		}
-	}
+	// With both strides 1, C is a single row (m = 1) or column (n = 1):
+	// row-major when it has the width for it, else column-major.
+	rowMajor := csc == 1 && rsc >= n
+	scaleC(c, rowMajor, m, n, max(rsc, csc), beta)
 	if alpha == 1 {
-		// With both strides 1, C is a single row (m = 1) or column (n = 1):
-		// row-major when it has the width for it, else column-major.
-		stridedProduct(h, c, csc == 1 && rsc >= n, max(rsc, csc), a, rsa, csa, b, rsb, csb, m, n, k)
+		stridedProduct(h, c, rowMajor, max(rsc, csc), a, rsa, csa, b, rsb, csb, m, n, k)
 		return nil
 	}
 	// The kernel has no alpha: form the product in a scratch matrix, row-major,
@@ -84,6 +74,31 @@ func gemmStrided[T real](name string, m, n, k int, alpha T, a []T, rsa, csa int,
 	}
 	h.scratch.Put(&t)
 	return nil
+}
+
+// scaleC computes C := beta*C a contiguous run at a time (a row of a row-major
+// C, a column of a column-major one: clear and the loop over a slice, which the
+// compiler turns into a memclr and a vector loop), without reading C when beta
+// is 0 (it may hold NaN). Element by element through the two strides it cost
+// m*n multiplications of index arithmetic, 4 us on a 64 x 64 product that the
+// kernel does in 18.
+func scaleC[T real](c []T, rowMajor bool, m, n, ld int, beta T) {
+	runs, run := m, n // rows of n elements, or columns of m
+	if !rowMajor {
+		runs, run = n, m
+	}
+	for r := 0; r < runs; r++ {
+		s := c[r*ld : r*ld+run]
+		switch beta {
+		case 0:
+			clear(s)
+		case 1:
+		default:
+			for i := range s {
+				s[i] *= beta
+			}
+		}
+	}
 }
 
 // stridedProduct adds a*b to dst, row-major with rows ld apart when rowMajor,
