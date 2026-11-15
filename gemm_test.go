@@ -14,7 +14,7 @@ type shape struct{ m, n, k int }
 // parallel kernel path (m*n >= 6000), and a contraction longer than the kernel's
 // KC block of 256, which sums in several partial products.
 var gemmShapes = []shape{
-	{0, 5, 3}, {4, 0, 3}, {4, 5, 0}, {1, 1, 1}, {7, 5, 3}, {13, 17, 19}, {37, 41, 43},
+	{0, 5, 3}, {4, 0, 3}, {4, 5, 0}, {1, 1, 1}, {1, 9, 5}, {9, 1, 5}, {7, 5, 3}, {13, 17, 19}, {37, 41, 43},
 	{5, 100, 7}, {100, 5, 7}, {6, 8, 300}, {80, 80, 30},
 }
 
