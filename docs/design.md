@@ -72,6 +72,53 @@ returns.
    `Scale`, `Float32Dot`) instead of duplicating it; `Gemv` is one `Axpy` or
    `Dot` per column. Strided calls, nrm2, asum and iamax run the reference
    loops.
+8. **A general-stride entry, `DgemmStrided` / `SgemmStrided`, beside the
+   column-major one.** go-ndarray's arrays are row-major views with an arbitrary
+   row and column stride (`a[:, ::2]`, a transposed or a sliced matrix), which
+   `Dgemm`'s leading dimension cannot express: the only way through it was to
+   copy the operand first, measured at 1.1x (n = 256) to 1.5x (n = 1024)
+   slower than the packing that reads the strides in place. The precedent is
+   BLIS's typed API, `bli_?gemm(transa, transb, m, n, k, alpha, a, rsa, csa, b,
+   rsb, csb, beta, c, rsc, csc)`, where "all matrix arguments have associated
+   row and column strides arguments", row stride first, and "unit row stride
+   implies column-major storage and unit column stride implies row-major
+   storage"
+   ([BLISTypedAPI.md](https://github.com/flame/blis/blob/master/docs/BLISTypedAPI.md),
+   read 2026-11-15).
+
+   The shape chosen:
+   `DgemmStrided(m, n, k, alpha, a, rsa, csa, b, rsb, csb, beta, c, rsc, csc) error`,
+   and `SgemmStrided`. Element (i, j) of an operand is `x[i*rs+j*cs]`; A is
+   m x k, B k x n, C m x n. There are no transpose flags (a transpose is a
+   stride swap, so a flag would be a second spelling), and a Go `error` replaces
+   BLIS's `bli_check`.
+
+   *Parameters*, numbered from 1 as in the signature, for `*ArgError`
+   (`Routine` is `DGEMMSTRIDED` or `SGEMMSTRIDED`): 1 m, 2 n, 3 k, 4 alpha, 5 a,
+   6 rsa, 7 csa, 8 b, 9 rsb, 10 csb, 11 beta, 12 c, 13 rsc, 14 csc. Negative
+   dimensions are 1, 2, 3. Every stride of A and B must be at least 1 (6, 7, 9,
+   10): zero and negative strides, which BLIS accepts, are refused, because they
+   alias elements or run backwards past the start of the slice. C must be
+   row-major (`csc = 1`, `rsc >= n`) or column-major (`rsc = 1`, `csc >= m`):
+   those are the two destinations the kernel writes (the second through the
+   transpose identity of decision 5), and C is written, so overlapping or
+   doubly-strided C is refused: `rsc < n`, `rsc < 1` and neither stride 1 are
+   13; `csc < 1` and a column-major C with `csc < m` are 14. A slice must hold
+   `1+(rows-1)*rs+(cols-1)*cs` elements (0 for an empty matrix), computed
+   without overflow (`check.NeedStrided`), against its own number (5, 8, 12),
+   only when the call reads or writes it, after the quick returns. A caller with
+   a stride-0 broadcast, a reversed view or an extent-1 dimension with an
+   odd stride normalizes it first.
+
+   *Semantics and bound* are `Dgemm`'s: the same quick returns, `beta = 0`
+   never reads C, `alpha = 0` never reads A or B, and the elementwise bound
+   `gamma_{k+2}(|alpha||A||B| + |beta||C|)`, asserted against the oracle on
+   every storage of A, B and C. It runs the same packed kernel through
+   `MatMulLDStridedP`: no new kernel. Where `Dgemm` builds a `Mat` from `lda`
+   and the transpose flag, this builds it from the two strides; for the same
+   matrices the result is bit for bit that of `Dgemm`
+   (`TestGemmStridedSameAsGemm`). Without a float32 kernel `SgemmStrided` runs
+   plain loops over the strides. `HasSgemmKernel` reports whether it has one.
 
 ## What was moved from go-ndarray
 

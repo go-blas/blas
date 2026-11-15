@@ -134,6 +134,79 @@ func GemmLens(tA, tB byte, m, n, k, lda, ldb, ldc, lenA, lenB, lenC int, readsAB
 	return 0
 }
 
+// NeedStrided returns the least length of a slice holding a rows x cols matrix
+// whose element (i, j) is at i*rs+j*cs: 1+(rows-1)*rs+(cols-1)*cs, and 0 for an
+// empty matrix. rs and cs are at least 1. ok is false when it does not fit.
+func NeedStrided(rows, cols, rs, cs int) (n int, ok bool) {
+	if rows == 0 || cols == 0 {
+		return 0, true
+	}
+	h1, l1 := bits.Mul(uint(rs), uint(rows-1))
+	h2, l2 := bits.Mul(uint(cs), uint(cols-1))
+	sum, c1 := bits.Add(l1, l2, 0)
+	sum, c2 := bits.Add(sum, 1, 0)
+	if h1 != 0 || h2 != 0 || c1 != 0 || c2 != 0 || sum > uint(maxInt) {
+		return 0, false
+	}
+	return int(sum), true
+}
+
+// GemmStrided checks the dimension and stride parameters of xGEMMSTRIDED(M, N,
+// K, ALPHA, A, RSA, CSA, B, RSB, CSB, BETA, C, RSC, CSC), in the order of its
+// parameters: 1 M, 2 N, 3 K, 6 RSA, 7 CSA, 9 RSB, 10 CSB, 13 RSC, 14 CSC. Every
+// stride of A and B is at least 1. C must be row-major (CSC = 1, RSC >=
+// max(1, N)) or column-major (RSC = 1, CSC >= max(1, M)). A CSC below 1, and a
+// column-major C whose CSC is below M, are reported against CSC (14); any other
+// C (RSC below N, RSC below 1, neither stride 1) against RSC (13).
+func GemmStrided(m, n, k, rsa, csa, rsb, csb, rsc, csc int) int {
+	switch {
+	case m < 0: // guard
+		return 1
+	case n < 0: // guard
+		return 2
+	case k < 0: // guard
+		return 3
+	case rsa < 1: // guard
+		return 6
+	case csa < 1: // guard
+		return 7
+	case rsb < 1: // guard
+		return 9
+	case csb < 1: // guard
+		return 10
+	case csc < 1: // guard
+		return 14
+	case csc == 1 && rsc < max(1, n): // guard
+		return 13
+	case csc != 1 && rsc != 1: // guard
+		return 13
+	case csc != 1 && csc < max(1, m): // guard
+		return 14
+	}
+	return 0
+}
+
+// GemmStridedLens checks the slice lengths of a GEMMSTRIDED whose parameters
+// GemmStrided accepted and that is not a quick return. readsAB is false when
+// alpha is zero, in which case A and B are never read and may be empty.
+func GemmStridedLens(m, n, k, rsa, csa, rsb, csb, rsc, csc, lenA, lenB, lenC int, readsAB bool) int {
+	if readsAB {
+		nA, okA := NeedStrided(m, k, rsa, csa)
+		if short(lenA, nA, okA) { // guard
+			return 5
+		}
+		nB, okB := NeedStrided(k, n, rsb, csb)
+		if short(lenB, nB, okB) { // guard
+			return 8
+		}
+	}
+	nC, okC := NeedStrided(m, n, rsc, csc)
+	if short(lenC, nC, okC) { // guard
+		return 12
+	}
+	return 0
+}
+
 // Gemv checks the parameters of xGEMV(TRANS, M, N, ALPHA, A, LDA, X, INCX,
 // BETA, Y, INCY), in the reference's order.
 func Gemv(t byte, m, n, lda, incx, incy int) int {

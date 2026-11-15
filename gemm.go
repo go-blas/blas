@@ -37,17 +37,25 @@ func Sgemm(tA, tB Transpose, m, n, k int, alpha float32, a []float32, lda int, b
 	return gemm("SGEMM", tA, tB, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc, sHW)
 }
 
+// HasSgemmKernel reports whether Sgemm runs on a SIMD kernel on this CPU. When
+// it is false Sgemm runs the reference loops, which a caller with a faster
+// fallback (widening to float64, say) may prefer to avoid.
+func HasSgemmKernel() bool { return sHW.mul != nil }
+
 // hw is one element type's kernel and its scratch buffers. mul is nil when the
 // running CPU has no kernel for the type.
 type hw[T real] struct {
 	mul     func(dst []T, ldc int, tA, tB Transpose, m, n, k int, a []T, lda int, b []T, ldb int)
 	scratch sync.Pool
+	// mulS is the same kernel behind the general-stride entry (gemm_strided.go):
+	// dst += a*b, dst row-major with rows ld apart. It is nil exactly when mul is.
+	mulS func(dst []T, ld int, a, b kernels.MatOf[T], m, k, n int)
 }
 
-var dHW = &hw[float64]{mul: dMul}
+var dHW = &hw[float64]{mul: dMul, mulS: kernels.MatMulLDStridedP}
 
 // sHW has no kernel where the CPU has no float32 one (see kernels.HasGemm32).
-var sHW = &hw[float32]{mul: kernelIf(kernels.HasGemm32(), sMul)}
+var sHW = &hw[float32]{mul: kernelIf(kernels.HasGemm32(), sMul), mulS: kernelIf(kernels.HasGemm32(), kernels.MatMul32LDStridedP)}
 
 // kernelIf returns f when ok, and the zero value, nil for a func, otherwise.
 func kernelIf[F any](ok bool, f F) (none F) {
