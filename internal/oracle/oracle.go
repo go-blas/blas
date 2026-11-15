@@ -51,6 +51,7 @@ func Idx(n, inc, i int) int {
 type Result struct{ Exact, P, Q []*big.Float }
 
 func newResult(n int) Result {
+	n = max(n, 0)
 	r := Result{make([]*big.Float, n), make([]*big.Float, n), make([]*big.Float, n)}
 	for i := range r.Exact {
 		r.Exact[i], r.P[i], r.Q[i] = bf(), bf(), bf()

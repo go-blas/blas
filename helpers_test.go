@@ -43,10 +43,10 @@ var impls32 = []impl[float32]{
 func each(t *testing.T, f64 func(t *testing.T, im impl[float64]), f32 func(t *testing.T, im impl[float32])) {
 	t.Helper()
 	for _, im := range impls64 {
-		t.Run("float64/"+im.name, func(t *testing.T) { f64(t, im) })
+		t.Run("float64/"+im.name, func(t *testing.T) { defer noPanic(t); f64(t, im) })
 	}
 	for _, im := range impls32 {
-		t.Run("float32/"+im.name, func(t *testing.T) { f32(t, im) })
+		t.Run("float32/"+im.name, func(t *testing.T) { defer noPanic(t); f32(t, im) })
 	}
 }
 
@@ -150,4 +150,14 @@ func setProcs(t *testing.T, n int) {
 	t.Helper()
 	old := runtime.GOMAXPROCS(n)
 	t.Cleanup(func() { runtime.GOMAXPROCS(old) })
+}
+
+// noPanic, deferred, turns a panic of the routine under test into a failed
+// assertion: no routine may panic on its arguments, and a missing guard must be
+// reported as a failure of the test, not as the death of the test binary.
+func noPanic(t *testing.T) {
+	t.Helper()
+	if r := recover(); r != nil {
+		t.Fatalf("panicked: %v", r)
+	}
 }

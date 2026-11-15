@@ -21,7 +21,7 @@ type errCase struct {
 func runErrCases(t *testing.T, routine string, cases []errCase) {
 	t.Helper()
 	for _, c := range cases {
-		err := c.call()
+		err := callRecovered(t, routine+" "+c.name, c.call)
 		var ae *blas.ArgError
 		if !errors.As(err, &ae) {
 			t.Errorf("%s %s: error = %v, want *ArgError", routine, c.name, err)
@@ -186,9 +186,22 @@ func testLevel1Errors[T float](t *testing.T, im impl[T], p string) {
 
 func TestLevel1Errors(t *testing.T) {
 	for _, im := range impls64 {
-		t.Run("float64/"+im.name, func(t *testing.T) { testLevel1Errors(t, im, "D") })
+		t.Run("float64/"+im.name, func(t *testing.T) { defer noPanic(t); testLevel1Errors(t, im, "D") })
 	}
 	for _, im := range impls32 {
-		t.Run("float32/"+im.name, func(t *testing.T) { testLevel1Errors(t, im, "S") })
+		t.Run("float32/"+im.name, func(t *testing.T) { defer noPanic(t); testLevel1Errors(t, im, "S") })
 	}
+}
+
+// callRecovered runs call and returns its error, or fails the test, and returns
+// nil, if it panicked.
+func callRecovered(t *testing.T, what string, call func() error) (err error) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("%s: panicked: %v", what, r)
+			err = nil
+		}
+	}()
+	return call()
 }

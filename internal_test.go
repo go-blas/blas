@@ -15,6 +15,11 @@ func TestKernelIf(t *testing.T) {
 // Without a float32 kernel (a CPU without one, or a target that has none) Sgemm
 // runs the reference loops; this drives that path on every machine.
 func TestSgemmWithoutKernel(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("panicked: %v", r)
+		}
+	}()
 	saved := sHW.mul
 	sHW.mul = nil
 	defer func() { sHW.mul = saved }()

@@ -88,19 +88,19 @@ func view32(x []float32, ld int, t Transpose) kernels.Mat32 {
 }
 
 func gemm[T real](name string, tA, tB Transpose, m, n, k int, alpha T, a []T, lda int, b []T, ldb int, beta T, c []T, ldc int, h *hw[T]) error {
-	if p := check.Gemm(byte(tA), byte(tB), m, n, k, lda, ldb, ldc); p != 0 {
+	if p := check.Gemm(byte(tA), byte(tB), m, n, k, lda, ldb, ldc); p != 0 { // guard
 		return argErr(name, p)
 	}
 	// Quick return if possible.
-	if m == 0 || n == 0 || ((alpha == 0 || k == 0) && beta == 1) {
+	if m == 0 || n == 0 || ((alpha == 0 || k == 0) && beta == 1) { // guard
 		return nil
 	}
-	if p := check.GemmLens(byte(tA), byte(tB), m, n, k, lda, ldb, ldc, len(a), len(b), len(c), alpha != 0); p != 0 {
+	if p := check.GemmLens(byte(tA), byte(tB), m, n, k, lda, ldb, ldc, len(a), len(b), len(c), alpha != 0); p != 0 { // guard
 		return argErr(name, p)
 	}
 	// Nothing to multiply, or no kernel: the reference loops, which also carry
 	// the alpha = 0 and k = 0 rules.
-	if alpha == 0 || k == 0 || h.mul == nil {
+	if alpha == 0 || k == 0 || h.mul == nil { // guard
 		ref.Gemm(tA == NoTrans, tB == NoTrans, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)
 		return nil
 	}

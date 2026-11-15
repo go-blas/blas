@@ -9,45 +9,25 @@ on:
 permissions:
   contents: read
 
-# Split-CI coverage policy (mirroring the go-asmgen / go-fft orgs).
+# Coverage policy, as in go-ndarray/ndarray (whose GEMM this repository took over).
 #
-# A single `go test -coverpkg` run cannot reach 100% statement coverage over a
-# SIMD-dispatched package: each arch compiles exactly one sumSIMD wrapper — the
-# amd64 SSE2 wrapper (reduce_amd64.go -> sum_amd64.s), the arm64 NEON wrapper
-# (reduce_arm64.go -> sum_arm64.s), the ppc64le VSX wrapper (reduce_ppc64le.go
-# -> sum_ppc64le.s), the loong64 LASX wrapper (reduce_loong64.go ->
-# sum_loong64.s), the riscv64 RVV wrapper (reduce_riscv64.go -> sum_riscv64.s),
-# the s390x vector wrapper (reduce_s390x.go -> sum_s390x.s), or the
-# scalar-alias wrapper (reduce_generic.go, on the 32-bit targets). No
-# single build sees
-# more than one, so no single run covers them all.
-#
-# The honest split:
-#   * The pure-Go scalar CORE plus the multicore kernels (parallel.go) are held
-#     to 100% statement coverage by the `test` gate. It runs on the amd64 hosts
-#     (ubuntu/windows) AND the arm64 host (macos); on each, exactly one sumSIMD
-#     wrapper compiles and IS exercised by TestSumSIMD, so the gate legitimately
-#     reaches 100% on every OS — nothing reachable is excluded.
-#   * The generated Plan 9 assembly carries no Go statements, so it cannot be
-#     statement-covered. It is validated by the per-arch execution jobs
-#     (arch-native / arch-qemu): each regenerates the committed .s with
-#     go-asmgen and fails if it is stale, vets it (asmdecl cross-checks every
-#     name+offset(FP)), builds it (cmd/asm encodes the mnemonics), and RUNS the
-#     suite — TestSumSIMD asserts the SIMD sum matches the scalar oracle to a
-#     tight relative tolerance (the lane-parallel grouping is a valid reordering,
-#     exactly the trade-off numpy's pairwise summation makes; bit-identity is
-#     not claimed for a reduction).
-#
-# So every line is either statement-covered by the gate or executed by a
-# per-arch job; the gate is never lowered and there is no coverage-gaming knob.
-# amd64/arm64/ppc64le/loong64 ship SIMD kernels (ppc64le's and loong64's were
-# also run on real POWER8/POWER9 and a Loongson 3C5000L); riscv64 ships RVV
-# kernels (used when the CPU reports V) and s390x vector-facility kernels (used
-# when AT_HWCAP reports it). Under qemu the riscv64 lane runs with V, the
-# loong64 lane on la464 (LSX+LASX) and the s390x lane on max (VX+VXE), and each
-# FAILS if its CPU does not report the extension (BLAS_REQUIRE_RVV / _LASX /
-# _VXE): until 2026-10-26 they ran qemu's default CPUs, and the riscv64 and
-# loong64 lanes only ever tested the scalar fallbacks.
+# A single `go test -coverpkg` run cannot reach every architecture's wrapper:
+# each GOARCH compiles exactly one gemm_<arch>.go. So:
+#   * the `test` gate runs the whole module, kernels included, on the amd64
+#     hosts (ubuntu, windows) and the arm64 host (macos) and holds it to 100% of
+#     the blocks: the API (blas, netlib), the checks, the reference ports and the
+#     driver, plus the one architecture's kernel wrapper that compiles there;
+#   * the generated Plan 9 assembly carries no Go statements, so it is not
+#     statement-covered. The per-arch jobs (arch-native, arch-qemu) regenerate
+#     the committed .s with go-asmgen and fail if it is stale, vet it (asmdecl
+#     checks every name and offset(FP)), build it, and RUN the suite: the GEMM
+#     micro-kernel tests compare each kernel with the scalar oracle, and the
+#     public API tests compare the routines with a math/big oracle against their
+#     stated error bound, on that architecture's kernel.
+#   * under qemu the riscv64 lane runs with V, the loong64 lane on la464
+#     (LSX+LASX) and the s390x lane on max (VX+VXE), and each FAILS if its CPU
+#     does not report the extension (BLAS_REQUIRE_RVV / _LASX / _VXE): a lane
+#     that only ever tested the scalar fallbacks is the failure this rules out.
 jobs:
   test:
     name: test (${{ matrix.os }})
@@ -62,6 +42,11 @@ jobs:
         with:
           go-version: 1.27.3
       - run: go version
+      - name: gofmt must print nothing
+        shell: bash
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then echo "::error::gofmt -l lists: $out"; exit 1; fi
       - run: go vet ./...
       - run: go build ./...
       - name: Test + 100% coverage gate
@@ -75,30 +60,45 @@ jobs:
           # statements never run.
           go run github.com/go-fleettools/fleettools/cmd/covblocks@v0.27.0 cover.out
 
-  # The refbench inventory (docs/perf.md): the allocation count of every case
-  # equals docs/perf.json, docs/perf-table.md is what perf.json generates, and
-  # every public function has a case or an entry in docs/perf-exempt.md. No
-  # Python, no timing: timing runs by hand at a 1-minute load below 8,
-  #   cd bench && GOMAXPROCS=1 go test -run TestPerf -cpu 1 -perf.run .
-  # GOMAXPROCS=1 is in the environment because go-fft/fft reads it once at init.
-  perf:
-    name: perf (refbench CI mode)
+  # The guard mutation check: every `// guard` line of the library, disabled in
+  # turn, must fail the tests by an assertion (not by a panic, not pass).
+  guards:
+    name: guards killed by mutation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version: 1.27.3
-      - name: Allocation counts, table, public-function inventory
-        working-directory: bench
-        env:
-          GOMAXPROCS: "1"
-        run: go test -count=1 -run TestPerf -cpu 1 .
+      - run: cd internal/cmd && go run ./guardmut -root ../..
+
+  # Fuzz smoke: every target for a few seconds, with the committed corpus
+  # (testdata/fuzz) replayed first by `go test`.
+  fuzz:
+    name: fuzz smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.3
+      - run: cd internal/cmd && go run ./fuzzall -root ../.. -time 10s
+
+  # Known vulnerabilities in what the module imports and in the standard
+  # library it is built with.
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.3
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
 
   # Native per-arch execution. amd64/arm64 have GitHub-hosted runners, so the
   # generated assembly runs natively. Each regenerates the committed .s via
-  # go-asmgen and fails if it is stale, then vets/builds/runs the suite —
-  # TestSumSIMD asserts SIMD sum == scalar oracle (to tolerance).
+  # go-asmgen and fails if it is stale, then vets/builds/runs the suite.
   arch-native:
     name: arch ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
@@ -121,17 +121,16 @@ jobs:
              internal/kernels/sum_${{ matrix.regen }}.s
           git diff --exit-code -- internal/kernels/sum_${{ matrix.regen }}.s || {
             echo "::error::generated ${{ matrix.regen }} assembly is stale; run go generate and commit"; exit 1; }
-      - name: Vet (asmdecl) + build + run (SIMD == scalar)
+      - name: Vet (asmdecl) + build + run
         run: |
           go vet ./...
           go build ./...
           go test ./...
 
   # qemu-user execution for the targets without a hosted runner, plus 32-bit
-  # arm. It runs their SIMD kernels where qemu emulates the extension: RVV on
-  # riscv64, LSX/LASX on loong64, VSX on ppc64le, and the vector facility with
-  # its z14 enhancements on s390x. It is also the endianness and word-size
-  # guard.
+  # arm. -short keeps the big.Float oracle's largest products out of the
+  # emulated lanes (the oracle costs ~100 ns a multiply natively and far more
+  # emulated); every kernel path, every transpose and every guard still runs.
   arch-qemu:
     name: arch ${{ matrix.goarch }} (qemu)
     runs-on: ubuntu-latest
@@ -139,35 +138,28 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # V enabled: qemu's default riscv64 CPU has none, and the RVV kernels
-          # went untested here until 2026-10-26. BLAS_REQUIRE_RVV makes a
-          # CPU without V fail the lane (TestRVVWhenRequired).
+          # V enabled: qemu's default riscv64 CPU has none. BLAS_REQUIRE_RVV
+          # makes a CPU without V fail the lane (TestRVVWhenRequired).
           - { goarch: riscv64, qemu: qemu-riscv64-static, cpu: "rv64,v=true,vlen=256", require: BLAS_REQUIRE_RVV }
           # la464 has LSX and LASX; BLAS_REQUIRE_LASX makes a CPU that does
           # not report LASX fail the lane (TestLASXWhenRequired).
           - { goarch: loong64, qemu: qemu-loongarch64-static, cpu: "la464", require: BLAS_REQUIRE_LASX }
           - { goarch: ppc64le, qemu: qemu-ppc64le-static }
           # max includes z14's vector enhancements (VXE), which the float32
-          # kernels need; BLAS_REQUIRE_VXE fails the lane without them.
+          # kernel needs; BLAS_REQUIRE_VXE fails the lane without them.
           - { goarch: s390x,   qemu: qemu-s390x-static, cpu: "max", require: BLAS_REQUIRE_VXE }
-          # 32-bit: int is 32 bits, so shape/size overflow paths differ.
+          # 32-bit: int is 32 bits, so the overflow-safe size arithmetic of
+          # the argument checks is exercised.
           - { goarch: arm,     qemu: qemu-arm-static }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version: 1.27.3
-      # ⛔ `qemu-user-static` is a VIRTUAL package on Ubuntu 26.04, which
-      # `ubuntu-latest` became on 2026-10-19, and apt refuses to choose between its
-      # two providers:
-      #
-      #   E: Package 'qemu-user-static' has no installation candidate
-      #
-      # ⚠ Installing a provider is NOT the fix: `qemu-user-binfmt` registers binfmt
-      # handlers, it does not ship the `qemu-<arch>-static` binaries this lane
-      # invokes. `qemu-user` ships the dynamic `qemu-<arch>`, which is all that
-      # `go test -exec` needs, so both are installed and BOTH NAMES are accepted
-      # below. go-tex/engine#645 has the full account.
+      # `qemu-user-static` is a virtual package on Ubuntu 26.04 and apt refuses to
+      # choose a provider; `qemu-user` ships the dynamic `qemu-<arch>` that
+      # `go test -exec` needs, so both names are accepted below
+      # (go-tex/engine#645 has the account).
       - name: install qemu user-mode emulators
         timeout-minutes: 10
         run: sudo apt-get update && sudo apt-get install -y qemu-user qemu-user-binfmt
@@ -185,21 +177,18 @@ jobs:
           for cand in "$base" "${base%-static}"; do
             command -v "$cand" >/dev/null 2>&1 && q="$cand" && break
           done
-          # ⛔ A missing emulator FAILS this lane. A lane that reports success for
-          # an architecture it never ran is the one outcome this matrix exists to
-          # rule out.
+          # A missing emulator FAILS this lane: a lane that reports success for an
+          # architecture it never ran is the one outcome this matrix rules out.
           if [ -z "$q" ]; then
             echo "::error::no qemu user emulator for ${{ matrix.goarch }} (looked for $base and ${base%-static})"
             exit 1
           fi
-          # Printed on purpose: without it, "ran under emulation" and "skipped" are
-          # indistinguishable from a green tick.
           if [ -n "${{ matrix.cpu }}" ]; then
             export QEMU_CPU="${{ matrix.cpu }}"
             export ${{ matrix.require }}=1
           fi
           echo "running ${{ matrix.goarch }} under $q (QEMU_CPU=${QEMU_CPU:-default})"
-          GOARCH=${{ matrix.goarch }} go test -exec="$q" ./...
+          GOARCH=${{ matrix.goarch }} go test -short -exec="$q" ./...
 
   # 386 runs natively on the amd64 runner (the kernel executes 32-bit x86
   # binaries), not under qemu-i386, whose emulation loses x87/SSE state across
@@ -217,10 +206,8 @@ jobs:
           GOARCH=386 go vet ./...
           GOARCH=386 go test ./...
 
-  # Every GOOS/GOARCH pair Go supports must at least compile the library's
-  # tests: a test that does not compile on a target is a test
-  # that never runs there, and nothing else would notice (a 1<<62 literal
-  # once broke every 32-bit target this way). Execution is the lanes above.
+  # Every GOOS/GOARCH pair Go supports must at least compile the tests: a test
+  # that does not compile on a target is a test that never runs there.
   cross-compile:
     name: compile tests on every target
     runs-on: ubuntu-latest

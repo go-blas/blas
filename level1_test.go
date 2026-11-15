@@ -7,7 +7,7 @@ import (
 	"github.com/go-blas/blas/internal/oracle"
 )
 
-var l1Sizes = []int{0, 1, 2, 5, 6, 33, 1000}
+var l1Sizes = []int{-1, 0, 1, 2, 5, 6, 33, 1000}
 
 var l1Incs = [][2]int{{1, 1}, {2, 3}, {-1, 1}, {1, -2}, {-2, -2}, {0, 1}, {1, 0}}
 

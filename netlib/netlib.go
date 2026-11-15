@@ -34,13 +34,13 @@ func Sgemm(tA, tB blas.Transpose, m, n, k int, alpha float32, a []float32, lda i
 }
 
 func gemm[T ref.Float](name string, tA, tB blas.Transpose, m, n, k int, alpha T, a []T, lda int, b []T, ldb int, beta T, c []T, ldc int) error {
-	if p := check.Gemm(byte(tA), byte(tB), m, n, k, lda, ldb, ldc); p != 0 {
+	if p := check.Gemm(byte(tA), byte(tB), m, n, k, lda, ldb, ldc); p != 0 { // guard
 		return argErr(name, p)
 	}
-	if m == 0 || n == 0 || ((alpha == 0 || k == 0) && beta == 1) {
+	if m == 0 || n == 0 || ((alpha == 0 || k == 0) && beta == 1) { // guard
 		return nil
 	}
-	if p := check.GemmLens(byte(tA), byte(tB), m, n, k, lda, ldb, ldc, len(a), len(b), len(c), alpha != 0); p != 0 {
+	if p := check.GemmLens(byte(tA), byte(tB), m, n, k, lda, ldb, ldc, len(a), len(b), len(c), alpha != 0); p != 0 { // guard
 		return argErr(name, p)
 	}
 	ref.Gemm(tA == blas.NoTrans, tB == blas.NoTrans, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)
@@ -58,13 +58,13 @@ func Sgemv(t blas.Transpose, m, n int, alpha float32, a []float32, lda int, x []
 }
 
 func gemv[T ref.Float](name string, t blas.Transpose, m, n int, alpha T, a []T, lda int, x []T, incx int, beta T, y []T, incy int) error {
-	if p := check.Gemv(byte(t), m, n, lda, incx, incy); p != 0 {
+	if p := check.Gemv(byte(t), m, n, lda, incx, incy); p != 0 { // guard
 		return argErr(name, p)
 	}
-	if m == 0 || n == 0 || (alpha == 0 && beta == 1) {
+	if m == 0 || n == 0 || (alpha == 0 && beta == 1) { // guard
 		return nil
 	}
-	if p := check.GemvLens(byte(t), m, n, lda, incx, incy, len(a), len(x), len(y), alpha != 0); p != 0 {
+	if p := check.GemvLens(byte(t), m, n, lda, incx, incy, len(a), len(x), len(y), alpha != 0); p != 0 { // guard
 		return argErr(name, p)
 	}
 	ref.Gemv(t == blas.NoTrans, m, n, alpha, a, lda, x, incx, beta, y, incy)
@@ -82,10 +82,10 @@ func Sdot(n int, x []float32, incx int, y []float32, incy int) (float32, error) 
 }
 
 func dot[T ref.Float](name string, n int, x []T, incx int, y []T, incy int) (T, error) {
-	if p := check.Vec1(2, n, incx, len(x)); p != 0 {
+	if p := check.Vec1(2, n, incx, len(x)); p != 0 { // guard
 		return 0, argErr(name, p)
 	}
-	if p := check.Vec1(4, n, incy, len(y)); p != 0 {
+	if p := check.Vec1(4, n, incy, len(y)); p != 0 { // guard
 		return 0, argErr(name, p)
 	}
 	return ref.Dot(n, x, incx, y, incy), nil
@@ -102,13 +102,13 @@ func Saxpy(n int, alpha float32, x []float32, incx int, y []float32, incy int) e
 }
 
 func axpy[T ref.Float](name string, n int, alpha T, x []T, incx int, y []T, incy int) error {
-	if n <= 0 || alpha == 0 {
+	if n <= 0 || alpha == 0 { // guard
 		return nil
 	}
-	if p := check.Vec1(3, n, incx, len(x)); p != 0 {
+	if p := check.Vec1(3, n, incx, len(x)); p != 0 { // guard
 		return argErr(name, p)
 	}
-	if p := check.Vec1(5, n, incy, len(y)); p != 0 {
+	if p := check.Vec1(5, n, incy, len(y)); p != 0 { // guard
 		return argErr(name, p)
 	}
 	ref.Axpy(n, alpha, x, incx, y, incy)
@@ -126,10 +126,10 @@ func Sscal(n int, alpha float32, x []float32, incx int) error {
 }
 
 func scal[T ref.Float](name string, n int, alpha T, x []T, incx int) error {
-	if n <= 0 || incx <= 0 || alpha == 1 {
+	if n <= 0 || incx <= 0 || alpha == 1 { // guard
 		return nil
 	}
-	if p := check.Vec1(3, n, incx, len(x)); p != 0 {
+	if p := check.Vec1(3, n, incx, len(x)); p != 0 { // guard
 		return argErr(name, p)
 	}
 	ref.Scal(n, alpha, x, incx)
@@ -143,7 +143,7 @@ func Dnrm2(n int, x []float64, incx int) (float64, error) { return nrm2("DNRM2",
 func Snrm2(n int, x []float32, incx int) (float32, error) { return nrm2("SNRM2", n, x, incx) }
 
 func nrm2[T ref.Float](name string, n int, x []T, incx int) (T, error) {
-	if p := check.Vec1(2, n, incx, len(x)); p != 0 {
+	if p := check.Vec1(2, n, incx, len(x)); p != 0 { // guard
 		return 0, argErr(name, p)
 	}
 	return ref.Nrm2(n, x, incx), nil
@@ -156,10 +156,10 @@ func Dasum(n int, x []float64, incx int) (float64, error) { return asum("DASUM",
 func Sasum(n int, x []float32, incx int) (float32, error) { return asum("SASUM", n, x, incx) }
 
 func asum[T ref.Float](name string, n int, x []T, incx int) (T, error) {
-	if n <= 0 || incx <= 0 {
+	if n <= 0 || incx <= 0 { // guard
 		return 0, nil
 	}
-	if p := check.Vec1(2, n, incx, len(x)); p != 0 {
+	if p := check.Vec1(2, n, incx, len(x)); p != 0 { // guard
 		return 0, argErr(name, p)
 	}
 	return ref.Asum(n, x, incx), nil
@@ -173,10 +173,10 @@ func Idamax(n int, x []float64, incx int) (int, error) { return iamax("IDAMAX", 
 func Isamax(n int, x []float32, incx int) (int, error) { return iamax("ISAMAX", n, x, incx) }
 
 func iamax[T ref.Float](name string, n int, x []T, incx int) (int, error) {
-	if n < 1 || incx <= 0 {
+	if n < 1 || incx <= 0 { // guard
 		return 0, nil
 	}
-	if p := check.Vec1(2, n, incx, len(x)); p != 0 {
+	if p := check.Vec1(2, n, incx, len(x)); p != 0 { // guard
 		return 0, argErr(name, p)
 	}
 	return ref.Iamax(n, x, incx), nil

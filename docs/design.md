@@ -1,0 +1,108 @@
+# Design
+
+The decisions of this repository, agreed on
+[go-embedded-ruby/ruby#918](https://github.com/go-embedded-ruby/ruby/issues/918)
+(read the last two comments there) and recorded here so that the code can be
+judged against them. julia binds libblastrampoline to this module
+([go-embedded-julia/julia#67](https://github.com/go-embedded-julia/julia/issues/67));
+go-ndarray will consume it in a later pull request.
+
+## What this is
+
+The fleet's pure-Go BLAS, and later LAPACK, with the Fortran reference
+signatures, so that a Fortran ABI shim can call it exactly: column-major
+storage, leading dimensions, increments, the reference's scalar rules and quick
+returns.
+
+## Decisions
+
+1. **Reference signatures and semantics.** One Go routine per Fortran routine,
+   parameter for parameter, named with the s/d/c/z prefix convention
+   (`Dgemm`, `Sgemv`, `Idamax`, and later `Zgemm`, `Zdotc`, `Zgetrf`).
+   `beta = 0` never reads C; `alpha = 0` never reads A or B; `m = 0`, `n = 0`
+   and the netlib quick returns return at once.
+2. **Complex and LAPACK come next, without breaking anything.** This release is
+   `float32` and `float64`. The API is shaped so that c and z follow as pure
+   additions: `Transpose` has `NoTrans`, `Trans` and `ConjTrans` from the start
+   (for real types `ConjTrans` behaves like `Trans`, as in netlib); the
+   routines carry the s/d/c/z prefix; `ArgError` and the `Uplo`, `Diag` and
+   `Side` enums are type-independent. The complex routines (`Cgemm`, `Zgemm`,
+   `Zgemv`, `Zdotc`/`Zdotu`, ...) take `complex64` and `complex128` slices,
+   and LAPACK (`zgetrf`, `zheevd`, `zgesdd`, ...) follows the BLAS.
+3. **Argument errors never panic.** Each routine returns `error`: nil, or
+   `*ArgError{Routine, Param}` carrying xerbla's parameter number (LAPACK
+   `info = -Param`). Beyond the reference's tests, every slice is checked
+   against what the call needs (`lda*(cols-1)+rows`, `1+(n-1)*|inc|`) with
+   overflow-safe arithmetic that holds on 386 and arm. A slice is checked
+   only when the call reads or writes it. The checks live in
+   `internal/check` and return a parameter number; `blas` and `netlib` wrap it,
+   so both report the same error.
+4. **The contract is an error bound, not bit identity.** Each routine states a
+   bound, asserted against a `math/big` oracle of 256 bits
+   (`internal/oracle`); the bounds are in the package comment of `blas`. FMA,
+   blocking, packing and reordered sums are allowed and used inside it. For
+   gemm the bound is `gamma_{k+2} (|alpha||op(A)||op(B)| + |beta||C|)`,
+   elementwise, `gamma_k = ku/(1-ku)`. The `beta` term is inside the `k+2`
+   because C is scaled first and the product accumulated into it, which is what
+   the reference's own NN and NT loops do and what every blocked BLAS does; a
+   bound of `gamma_1 |beta||C|` alone would need the product formed apart and
+   combined at the end, at the price of an `m*n` scratch matrix on every call
+   with `beta != 0`.
+5. **No new kernel.** The column-major product is the row-major product
+   `C^T = op(B)^T op(A)^T` over ndarray's strided GEMM kernel. The only change
+   to the moved driver is that its destination takes a row stride
+   (`MatMulLDStridedP`: `dst += a*b`, rows `ldc` apart) instead of assuming
+   `ldc = n`; the micro-kernels already took `ldc`. The kernel has no alpha:
+   with `alpha != 1` the product is formed in a pooled scratch matrix and added
+   with alpha. `Sgemm` without a float32 kernel (CPUs and targets that have none)
+   runs the reference loops.
+6. **`netlib` is a public exact option.** Plain-Go ports of reference BLAS 3.12
+   (Reference-LAPACK/lapack, tag `v3.12.0`, `BLAS/SRC`), in netlib's loop order
+   and without FMA: every product is wrapped in an explicit conversion, which
+   the Go specification says forbids fusing (arm64, ppc64le, riscv64 and s390x
+   fuse `x*y+z` otherwise); `TestNetlibIsNotFused` pins it with an operand pair
+   on which fused and unfused differ. Ported files: `dgemm.f`, `sgemm.f`,
+   `dgemv.f`, `sgemv.f`, `ddot.f`, `sdot.f`, `daxpy.f`, `saxpy.f`, `dscal.f`,
+   `sscal.f`, `dnrm2.f90`, `snrm2.f90`, `dasum.f`, `sasum.f`, `idamax.f`,
+   `isamax.f`. Double and single precision share one generic implementation
+   (`internal/ref`), which differ only in the type and the four constants of
+   nrm2. They are the equality oracle of the tests while porting, and the
+   fallback of `Sgemm`.
+7. **Level 1 with unit increments calls go-simd/floats** (`Dot`, `Axpy`,
+   `Scale`, `Float32Dot`) instead of duplicating it; `Gemv` is one `Axpy` or
+   `Dot` per column. Strided calls, nrm2, asum and iamax run the reference
+   loops.
+
+## What was moved from go-ndarray
+
+From `go-ndarray/ndarray` at `main` (v0.41.3, commit `8370f0f`):
+
+* `internal/kernels/gemm.go` (the packed, cache-blocked, multicore driver),
+  `gemm_<arch>.go`, `gemm32_*.go`, `gemmua_other.go`, `gemm_generic.go`;
+  from `parallel.go` only `spinUntil`, from `hwcap.go` the AT_HWCAP parser, and
+  the CPU-feature variables of `reduce_<arch>.go` (`cpu_<arch>.go` here). The
+  mat-vec and dot code of `gemm.go`, the thread pool and the elementwise
+  fan-out stay in ndarray, which has no GEMM left to share with them.
+* The GEMM micro-kernels of the six architectures (amd64 AVX2/FMA 6x8, arm64
+  NEON 4x8, ppc64le VSX 8x8, loong64 LASX 8x8, riscv64 RVV 6x16 and 8x16, s390x
+  4x8) with their tests and benchmarks.
+* The go-asmgen generators, `internal/kernels/asmgen/<arch>/gen.go`, which in
+  ndarray write GEMM and non-GEMM kernels into one `sum_<arch>.s`. Here each
+  emits only the GEMM kernels, to the same file names. `asmgen/splitdiff` proves
+  that the output is exactly the GEMM part of ndarray's file: every TEXT block and
+  DATA symbol is byte-identical and in the same order, and the headers are
+  identical. The kernels left in ndarray's files (`dot*`, `blocks8*`, `*32*`
+  elementwise, `sqrt32*`, `max*`/`min*`) are not GEMM.
+* Their tests: per-architecture kernels, one worker (`TestGemmOneWorkerSameBits`),
+  bits, `packRows8`, the fences that fault on a one-element overrun, and the
+  `BLAS_REQUIRE_RVV`/`_LASX`/`_VXE` lane guards (`NDARRAY_REQUIRE_*` in ndarray).
+
+Switching ndarray to this module is a later pull request.
+
+## Testing the guards
+
+Every argument guard is a line ending in `// guard`. `internal/cmd/guardmut`
+disables each in turn and requires the tests to fail by an assertion: a
+mutant that survives is an untested guard, and one that ends in a panic is a
+guard the language found for us. The routines never panic, and a test turns a
+panic of the routine under test into a failed assertion (`noPanic`).
