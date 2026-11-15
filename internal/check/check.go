@@ -155,9 +155,10 @@ func NeedStrided(rows, cols, rs, cs int) (n int, ok bool) {
 // K, ALPHA, A, RSA, CSA, B, RSB, CSB, BETA, C, RSC, CSC), in the order of its
 // parameters: 1 M, 2 N, 3 K, 6 RSA, 7 CSA, 9 RSB, 10 CSB, 13 RSC, 14 CSC. Every
 // stride of A and B is at least 1. C must be row-major (CSC = 1, RSC >=
-// max(1, N)) or column-major (RSC = 1, CSC >= max(1, M)). A CSC below 1, and a
-// column-major C whose CSC is below M, are reported against CSC (14); any other
-// C (RSC below N, RSC below 1, neither stride 1) against RSC (13).
+// max(1, N)) or column-major (RSC = 1, CSC >= max(1, M)); either one is valid,
+// so with both strides 1 a C of one row or one column passes. A CSC below 1, and
+// a column-major C whose CSC is below M, are reported against CSC (14); any
+// other C (RSC below N, RSC below 1, neither stride 1) against RSC (13).
 func GemmStrided(m, n, k, rsa, csa, rsb, csb, rsc, csc int) int {
 	switch {
 	case m < 0: // guard
@@ -176,14 +177,14 @@ func GemmStrided(m, n, k, rsa, csa, rsb, csb, rsc, csc int) int {
 		return 10
 	case csc < 1: // guard
 		return 14
-	case csc == 1 && rsc < max(1, n): // guard
-		return 13
-	case csc != 1 && rsc != 1: // guard
-		return 13
-	case csc != 1 && csc < max(1, m): // guard
+	case csc == 1 && rsc >= max(1, n): // row-major C
+		return 0
+	case rsc == 1 && csc >= max(1, m): // column-major C; tested after the row-major one, so m = 1 or n = 1 with both strides 1 is valid either way
+		return 0
+	case rsc == 1 && csc != 1: // guard
 		return 14
 	}
-	return 0
+	return 13
 }
 
 // GemmStridedLens checks the slice lengths of a GEMMSTRIDED whose parameters

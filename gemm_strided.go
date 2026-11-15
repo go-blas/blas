@@ -68,7 +68,9 @@ func gemmStrided[T real](name string, m, n, k int, alpha T, a []T, rsa, csa int,
 		}
 	}
 	if alpha == 1 {
-		stridedProduct(h, c, csc == 1, max(rsc, csc), a, rsa, csa, b, rsb, csb, m, n, k)
+		// With both strides 1, C is a single row (m = 1) or column (n = 1):
+		// row-major when it has the width for it, else column-major.
+		stridedProduct(h, c, csc == 1 && rsc >= n, max(rsc, csc), a, rsa, csa, b, rsb, csb, m, n, k)
 		return nil
 	}
 	// The kernel has no alpha: form the product in a scratch matrix, row-major,

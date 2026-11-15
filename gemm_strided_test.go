@@ -138,26 +138,61 @@ func TestGemmStridedBound(t *testing.T) {
 }
 
 // The strided entry agrees, bit for bit, with the column-major one on the same
-// data: it is the same kernel. Only float64 has a kernel on every target; the
-// float32 loops without one (loong64) sum in another order, within the bound
-// the bound test asserts.
-func TestGemmStridedSameAsGemm(t *testing.T) {
+// data: it is the same kernel. float32 is compared only where there is a
+// float32 kernel: without one (loong64) Sgemm and SgemmStrided run loops that
+// sum in different orders, each within the bound the bound test asserts.
+func testStridedSameAsGemm[T float](t *testing.T, gemm func(tA, tB blas.Transpose, m, n, k int, alpha T, a []T, lda int, b []T, ldb int, beta T, c []T, ldc int) error, strided stridedFn[T]) {
 	rng := newRNG(22)
 	m, n, k := 37, 41, 43
-	a, b := matrix[float64](rng, m, k, m), matrix[float64](rng, k, n, k)
-	for _, ab := range [][2]float64{{1, 0}, {2.5, 1}} {
-		want, got := matrix[float64](rng, m, n, m), make([]float64, m*n)
+	a, b := matrix[T](rng, m, k, m), matrix[T](rng, k, n, k)
+	for _, ab := range [][2]T{{1, 0}, {2.5, 1}} {
+		want, got := matrix[T](rng, m, n, m), make([]T, m*n)
 		copy(got, want)
-		if err := blas.Dgemm(blas.NoTrans, blas.NoTrans, m, n, k, ab[0], a, m, b, k, ab[1], want, m); err != nil {
+		if err := gemm(blas.NoTrans, blas.NoTrans, m, n, k, ab[0], a, m, b, k, ab[1], want, m); err != nil {
 			t.Fatal(err)
 		}
-		if err := blas.DgemmStrided(m, n, k, ab[0], a, 1, m, b, 1, k, ab[1], got, 1, m); err != nil {
+		if err := strided(m, n, k, ab[0], a, 1, m, b, 1, k, ab[1], got, 1, m); err != nil {
 			t.Fatal(err)
 		}
 		if !same(want, got) {
-			t.Fatalf("differs from Dgemm for alpha, beta = %v", ab)
+			t.Fatalf("differs from Gemm for alpha, beta = %v", ab)
 		}
 	}
+}
+
+func TestGemmStridedSameAsGemm(t *testing.T) {
+	testStridedSameAsGemm(t, blas.Dgemm, blas.DgemmStrided)
+	t.Logf("float32 bit identity needs a float32 kernel: HasSgemmKernel() = %v", blas.HasSgemmKernel())
+	if blas.HasSgemmKernel() {
+		testStridedSameAsGemm(t, blas.Sgemm, blas.SgemmStrided)
+	}
+}
+
+// A C of one row or one column with both strides 1 is valid, whichever of the
+// two storages it is read as.
+func testStridedVectorC[T float](t *testing.T, name string, gemm stridedFn[T]) {
+	for _, alpha := range []T{1, 2} {
+		// 1 x 2 = (1 x 1)(1 x 2): column-major only reads it as C with csc >= m.
+		c := make([]T, 2)
+		if err := gemm(1, 2, 1, alpha, []T{2}, 1, 1, []T{3, 4}, 2, 1, 0, c, 1, 1); err != nil {
+			t.Fatalf("%s: one row: %v", name, err)
+		}
+		if c[0] != 6*alpha || c[1] != 8*alpha {
+			t.Fatalf("%s: one row: c = %v", name, c)
+		}
+		// 2 x 1 = (2 x 1)(1 x 1): row-major only reads it as C with rsc >= n.
+		c = make([]T, 2)
+		if err := gemm(2, 1, 1, alpha, []T{2, 3}, 1, 1, []T{4}, 1, 1, 0, c, 1, 1); err != nil {
+			t.Fatalf("%s: one column: %v", name, err)
+		}
+		if c[0] != 8*alpha || c[1] != 12*alpha {
+			t.Fatalf("%s: one column: c = %v", name, c)
+		}
+	}
+}
+
+func TestGemmStridedVectorC(t *testing.T) {
+	eachStrided(t, testStridedVectorC[float64], testStridedVectorC[float32])
 }
 
 func testStridedScalarRules[T float](t *testing.T, name string, gemm stridedFn[T]) {
