@@ -19,7 +19,7 @@ First release line, real routines only:
 
 | Level | Routines (`S` and `D`) |
 |---|---|
-| 3 | `Sgemm`, `Dgemm` |
+| 3 | `Sgemm`, `Dgemm`; `SgemmStrided`, `DgemmStrided` (row and column stride per operand, as BLIS's `bli_?gemm`, no copy of a sliced or transposed view); `HasSgemmKernel` |
 | 2 | `Sgemv`, `Dgemv` |
 | 1 | `Sdot`/`Ddot`, `Saxpy`/`Daxpy`, `Sscal`/`Dscal`, `Snrm2`/`Dnrm2`, `Sasum`/`Dasum`, `Isamax`/`Idamax` |
 

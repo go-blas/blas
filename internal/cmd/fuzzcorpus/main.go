@@ -74,6 +74,28 @@ func main() {
 		g('T', 'N', 5, 5, 5, 0, 0, 0, 0, 0, 0, 1, 1, 2)    // infinity planted
 		g('N', 'N', 39, 39, 39, 0, 0, 0, 0, 0, 0, 1, 1, 0) // parallel kernel path
 	}
+	for _, p := range []struct{ target, kind string }{{"FuzzDgemmStrided", "float64"}, {"FuzzSgemmStrided", "float32"}} {
+		// kinds (A | B<<2 | C<<4 | invalid-C<<6), m, n, k, padA, padB, padC, dA, dB, dC, alpha, beta, flavor, seed
+		g := func(kinds uint8, m, n, k, pa, pb, pc, dA, dB, dC int, al, be float64, flavor int) {
+			add(p.target, u8(int(kinds)), i8(m), i8(n), i8(k), i8(pa), i8(pb), i8(pc), i8(dA), i8(dB), i8(dC), f(p.kind, al), f(p.kind, be), u8(flavor), u64(m*100+n*10+k+int(kinds)))
+		}
+		g(0x00, 7, 5, 3, 0, 0, 0, 0, 0, 0, 1, 0, 0)   // row-major everywhere
+		g(0x15, 7, 5, 3, 0, 0, 0, 0, 0, 0, 2.5, 1, 0) // column-major everywhere
+		g(0x1e, 13, 17, 19, 3, 2, 1, 0, 0, 0, 0.75, 2, 0)
+		g(0x2d, 9, 4, 6, 1, 0, 3, 0, 0, 0, -1, 0.5, 0)
+		g(0x0b, 6, 8, 37, 0, 0, 0, 0, 0, 0, 1, 1, 0)
+		g(0x00, 39, 39, 39, 0, 0, 0, 0, 0, 0, 1, 1, 0) // parallel kernel path
+		g(0x20, 5, 5, 5, 0, 0, 0, 0, 0, 0, 1, 1, 0)    // C with both strides above 1
+		g(0x40, 3, 3, 3, 0, 0, -1, 0, 0, 0, 1, 1, 0)   // invalid C stride
+		g(0x40, 3, 3, 3, 0, 0, 3, 0, 0, 0, 1, 1, 0)
+		g(0x00, 6, 6, 6, 0, 0, 0, -1, 0, 0, 1, 1, 0)  // A one short
+		g(0x00, 6, 6, 6, 0, 0, 0, 0, -1, 0, 1, 1, 0)  // B one short
+		g(0x00, 6, 6, 6, 0, 0, 0, 0, 0, -1, 1, 1, 0)  // C one short
+		g(0x00, 0, 5, 3, 0, 0, 0, 0, 0, 0, 1, 1, 0)   // m = 0
+		g(0x00, 5, 5, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0)   // k = 0, C := 0
+		g(0x00, 5, 5, 5, 0, 0, 0, -2, -2, 0, 0, 3, 0) // alpha = 0, A and B short
+		g(0x00, 5, 5, 5, 0, 0, 0, 0, 0, 0, 1, 0, 1)   // NaN planted
+	}
 	for _, p := range []struct{ target, kind string }{{"FuzzDgemv", "float64"}, {"FuzzSgemv", "float32"}} {
 		// tr, m, n, ldaD, incx, incy, dA, dX, dY, alpha, beta, flavor, seed
 		g := func(tr byte, m, n, la, ix, iy, dA, dX, dY int, al, be float64, flavor int) {

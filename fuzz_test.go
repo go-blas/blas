@@ -509,3 +509,77 @@ func classes[T float](t *testing.T, flavor uint8, a, b []T) {
 		}
 	}
 }
+
+// fuzzGemmStrided drives DgemmStrided/SgemmStrided with arbitrary storage kinds
+// (see layout), paddings, slice lengths and scalars, valid or not: nothing
+// panics, an error leaves C as it was, and a call without error on finite data
+// is within the stated bound of the oracle.
+func fuzzGemmStrided[T float](t *testing.T, gemm stridedFn[T], kinds uint8, m8, n8, k8, padA, padB, padC, dA, dB, dC int8, alpha, beta T, flavor uint8, seed uint64) {
+	m, n, k := int(m8)%40, int(n8)%40, int(k8)%40
+	rsa, csa := layout(int(kinds)%4, m, k, int(padA)%4)
+	rsb, csb := layout(int(kinds>>2)%4, k, n, int(padB)%4)
+	rsc, csc := layout(int(kinds>>4)%4, m, n, int(padC)%4)
+	if kinds>>6 == 1 { // an invalid C stride
+		rsc = int(padC)
+	}
+	length := func(rows, cols, rs, cs int, d int8) int {
+		l := 0
+		if rows > 0 && cols > 0 {
+			l = 1 + (rows-1)*max(rs, 0) + (cols-1)*max(cs, 0)
+		}
+		return max(0, l+int(d)%3)
+	}
+	a := fuzzData[T](seed, length(m, k, rsa, csa, dA), flavor)
+	b := fuzzData[T](seed+1, length(k, n, rsb, csb, dB), flavor)
+	c0 := fuzzData[T](seed+2, length(m, n, rsc, csc, dC), 0)
+	c := clone(c0)
+	if err := gemm(m, n, k, alpha, a, rsa, csa, b, rsb, csb, beta, c, rsc, csc); err != nil {
+		var ae *blas.ArgError
+		if !errors.As(err, &ae) || ae.Param < 1 || ae.Param > 14 {
+			t.Fatalf("not an *ArgError: %v", err)
+		}
+		if !same(c, c0) {
+			t.Fatal("an error modified C")
+		}
+		return
+	}
+	if m == 0 || n == 0 || ((alpha == 0 || k == 0) && beta == 1) {
+		if !same(c, c0) {
+			t.Fatal("a quick return changed C")
+		}
+		return
+	}
+	if flavor%5 != 0 || !modest(a, b, c0) || !scalarsModest(alpha, beta) {
+		return
+	}
+	// The oracle reads only what the reference reads, as in fuzzGemm.
+	da, db := make([]T, m*k), make([]T, k*n)
+	if alpha != 0 { // A and B may be short, and are not read, for alpha = 0
+		da, db = dense(a, m, k, rsa, csa), dense(b, k, n, rsb, csb)
+	}
+	dc := dense(c0, m, n, rsc, csc)
+	r := oracle.Gemm('N', 'N', m, n, k, alpha, da, m, db, k, beta, dc, m)
+	g := oracle.Gamma[T](k + 2)
+	for j := 0; j < n; j++ {
+		for i := 0; i < m; i++ {
+			within(t, "strided", c[i*rsc+j*csc], r, i+j*m, g, g)
+		}
+	}
+}
+
+func FuzzDgemmStrided(f *testing.F) {
+	f.Add(uint8(0), int8(5), int8(6), int8(7), int8(0), int8(1), int8(2), int8(0), int8(0), int8(0), 1.5, -0.5, uint8(0), uint64(1))
+	f.Add(uint8(0x1b), int8(9), int8(3), int8(30), int8(2), int8(0), int8(0), int8(0), int8(-1), int8(0), 1.0, 0.0, uint8(0), uint64(2))
+	f.Add(uint8(0x40), int8(3), int8(3), int8(3), int8(0), int8(0), int8(-1), int8(0), int8(0), int8(0), 1.0, 1.0, uint8(0), uint64(3))
+	f.Fuzz(func(t *testing.T, kinds uint8, m, n, k, pA, pB, pC, dA, dB, dC int8, alpha, beta float64, flavor uint8, seed uint64) {
+		fuzzGemmStrided(t, stridedFn[float64](blas.DgemmStrided), kinds, m, n, k, pA, pB, pC, dA, dB, dC, alpha, beta, flavor, seed)
+	})
+}
+
+func FuzzSgemmStrided(f *testing.F) {
+	f.Add(uint8(0), int8(5), int8(6), int8(7), int8(0), int8(1), int8(2), int8(0), int8(0), int8(0), float32(1.5), float32(-0.5), uint8(0), uint64(1))
+	f.Add(uint8(0x2d), int8(10), int8(7), int8(33), int8(0), int8(3), int8(0), int8(0), int8(0), int8(-2), float32(0.5), float32(0), uint8(0), uint64(2))
+	f.Fuzz(func(t *testing.T, kinds uint8, m, n, k, pA, pB, pC, dA, dB, dC int8, alpha, beta float32, flavor uint8, seed uint64) {
+		fuzzGemmStrided(t, stridedFn[float32](blas.SgemmStrided), kinds, m, n, k, pA, pB, pC, dA, dB, dC, alpha, beta, flavor, seed)
+	})
+}
