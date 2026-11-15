@@ -284,3 +284,60 @@ func TestGemmSameAcrossWorkers(t *testing.T) {
 		t.Fatal("the product depends on GOMAXPROCS")
 	}
 }
+
+// LSAME ignores case: lowercase flags run exactly like uppercase ones, for gemm
+// and gemv, and a letter that is no flag is still parameter 1 (or 2).
+func testLowercaseFlags[T float](t *testing.T, im impl[T]) {
+	rng := newRNG(6)
+	m, n, k := 7, 6, 5
+	a, b := matrix[T](rng, k, m, k), matrix[T](rng, n, k, n)
+	x, y0 := vector[T](rng, m, 1), vector[T](rng, n, 1)
+	c0 := matrix[T](rng, m, n, m)
+	pairs := [][2]blas.Transpose{{'T', 'T'}, {'t', 't'}, {'C', 'c'}, {'t', 'C'}}
+	for _, p := range pairs {
+		up := [2]blas.Transpose{blas.Transpose(upper(byte(p[0]))), blas.Transpose(upper(byte(p[1])))}
+		c1, c2 := clone(c0), clone(c0)
+		if err := im.gemm(p[0], p[1], m, n, k, 1.5, a, k, b, n, 0.5, c1, m); err != nil {
+			t.Fatalf("%c%c: %v", p[0], p[1], err)
+		}
+		if err := im.gemm(up[0], up[1], m, n, k, 1.5, a, k, b, n, 0.5, c2, m); err != nil {
+			t.Fatal(err)
+		}
+		if !same(c1, c2) {
+			t.Fatalf("gemm %c%c differs from %c%c", p[0], p[1], up[0], up[1])
+		}
+	}
+	// NoTrans, lower case, on both operands.
+	an, bn := matrix[T](rng, m, k, m), matrix[T](rng, k, n, k)
+	c1, c2 := clone(c0), clone(c0)
+	if err := im.gemm('n', 'n', m, n, k, 1, an, m, bn, k, 0, c1, m); err != nil {
+		t.Fatal(err)
+	}
+	if err := im.gemm('N', 'N', m, n, k, 1, an, m, bn, k, 0, c2, m); err != nil || !same(c1, c2) {
+		t.Fatalf("gemm nn differs from NN (%v)", err)
+	}
+	// gemv: 't' (x of length m, y of length n), then 'n'.
+	for _, tr := range []blas.Transpose{'t', 'c'} {
+		y1, y2 := clone(y0), clone(y0)
+		if err := im.gemv(tr, m, n, 2, matrix[T](newRNG(9), m, n, m), m, x, 1, 1, y1, 1); err != nil {
+			t.Fatal(err)
+		}
+		if err := im.gemv(blas.Transpose(upper(byte(tr))), m, n, 2, matrix[T](newRNG(9), m, n, m), m, x, 1, 1, y2, 1); err != nil || !same(y1, y2) {
+			t.Fatalf("gemv %c differs from upper case (%v)", tr, err)
+		}
+	}
+	if err := im.gemm('x', 'N', 1, 1, 1, 1, a, 1, a, 1, 1, c1, 1); err == nil {
+		t.Fatal("an unknown flag was accepted")
+	}
+}
+
+func upper(c byte) byte {
+	if c >= 'a' && c <= 'z' {
+		return c - 32
+	}
+	return c
+}
+
+func TestLowercaseFlags(t *testing.T) {
+	each(t, testLowercaseFlags[float64], testLowercaseFlags[float32])
+}

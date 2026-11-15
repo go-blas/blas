@@ -34,7 +34,8 @@ func Sgemm(tA, tB blas.Transpose, m, n, k int, alpha float32, a []float32, lda i
 }
 
 func gemm[T ref.Float](name string, tA, tB blas.Transpose, m, n, k int, alpha T, a []T, lda int, b []T, ldb int, beta T, c []T, ldc int) error {
-	if p := check.Gemm(byte(tA), byte(tB), m, n, k, lda, ldb, ldc); p != 0 { // guard
+	tA, tB = blas.Transpose(check.Upper(byte(tA))), blas.Transpose(check.Upper(byte(tB))) // LSAME ignores case
+	if p := check.Gemm(byte(tA), byte(tB), m, n, k, lda, ldb, ldc); p != 0 {              // guard
 		return argErr(name, p)
 	}
 	if m == 0 || n == 0 || ((alpha == 0 || k == 0) && beta == 1) { // guard
@@ -58,6 +59,7 @@ func Sgemv(t blas.Transpose, m, n int, alpha float32, a []float32, lda int, x []
 }
 
 func gemv[T ref.Float](name string, t blas.Transpose, m, n int, alpha T, a []T, lda int, x []T, incx int, beta T, y []T, incy int) error {
+	t = blas.Transpose(check.Upper(byte(t)))                     // LSAME ignores case
 	if p := check.Gemv(byte(t), m, n, lda, incx, incy); p != 0 { // guard
 		return argErr(name, p)
 	}

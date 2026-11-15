@@ -88,7 +88,8 @@ func view32(x []float32, ld int, t Transpose) kernels.Mat32 {
 }
 
 func gemm[T real](name string, tA, tB Transpose, m, n, k int, alpha T, a []T, lda int, b []T, ldb int, beta T, c []T, ldc int, h *hw[T]) error {
-	if p := check.Gemm(byte(tA), byte(tB), m, n, k, lda, ldb, ldc); p != 0 { // guard
+	tA, tB = Transpose(check.Upper(byte(tA))), Transpose(check.Upper(byte(tB))) // LSAME ignores case
+	if p := check.Gemm(byte(tA), byte(tB), m, n, k, lda, ldb, ldc); p != 0 {    // guard
 		return argErr(name, p)
 	}
 	// Quick return if possible.

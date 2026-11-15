@@ -20,6 +20,16 @@ const (
 	ConjTrans = 'C'
 )
 
+// Upper returns c in upper case if it is an ASCII letter: the reference's LSAME
+// ignores case, so 'n' and 'N' are the same flag. The routines apply it once at
+// entry, before the checks.
+func Upper(c byte) byte {
+	if c >= 'a' && c <= 'z' {
+		return c - 'a' + 'A'
+	}
+	return c
+}
+
 // ValidTrans reports whether c is one of the three transpose operations.
 func ValidTrans(c byte) bool {
 	return c == NoTrans || c == Trans || c == ConjTrans

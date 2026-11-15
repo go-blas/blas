@@ -32,6 +32,7 @@ func Sgemv(t Transpose, m, n int, alpha float32, a []float32, lda int, x []float
 // type has no vector kernel).
 func gemv[T real](name string, t Transpose, m, n int, alpha T, a []T, lda int, x []T, incx int, beta T, y []T, incy int,
 	axpy func(alpha T, x, y []T), dot func(x, y []T) T) error {
+	t = Transpose(check.Upper(byte(t)))                          // LSAME ignores case
 	if p := check.Gemv(byte(t), m, n, lda, incx, incy); p != 0 { // guard
 		return argErr(name, p)
 	}

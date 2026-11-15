@@ -1,7 +1,9 @@
 # blas
 
-Pure-Go BLAS and LAPACK (Fortran reference signatures, column-major, s/d/c/z):
-SIMD GEMM on six architectures, error-bounded, netlib-exact option.
+Pure-Go BLAS with the Fortran reference signatures, column-major: real
+(`float32`/`float64`) level 1, gemv and gemm, with a SIMD GEMM on six
+architectures, error bounds stated per routine, and a netlib-exact option.
+Complex (c/z) BLAS and LAPACK are next.
 
 ```go
 import "github.com/go-blas/blas"
@@ -13,8 +15,7 @@ err := blas.Dgemm(blas.NoTrans, blas.NoTrans, m, n, k, 1, a, lda, b, ldb, 0, c, 
 
 ## Status
 
-First release line, real routines only (complex and LAPACK follow, see
-[docs/design.md](docs/design.md)):
+First release line, real routines only:
 
 | Level | Routines (`S` and `D`) |
 |---|---|
@@ -63,6 +64,17 @@ precision twins), in the reference's loop order and without fused multiply-add,
 so the results are the same on every architecture. They are the equality oracle
 of the tests and a public option for callers who need the reference's exact
 rounding. They are not fast.
+
+## Next
+
+Complex BLAS (`Cgemm`, `Zgemm`, `Zgemv`, `Zdotc`/`Zdotu`, ... on `complex64` and
+`complex128` slices), then LAPACK (`zgetrf`, `zheevd`, `zgesdd`, ...), under the
+same naming and error conventions; see [docs/design.md](docs/design.md).
+
+## Flags
+
+Transpose flags are case-insensitive, as in netlib (`blas.Transpose(n)` is
+`NoTrans`).
 
 ## Testing
 

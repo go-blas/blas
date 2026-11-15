@@ -95,6 +95,7 @@ func vecLen(n, inc int, delta int8) int {
 }
 
 func fuzzGemm[T float](t *testing.T, tA, tB byte, m8, n8, k8, ldaD, ldbD, ldcD, dA, dB, dC int8, alpha, beta T, flavor uint8, seed uint64, impls []impl[T]) {
+	tA, tB = upper(tA), upper(tB) // the routines ignore case; the sizes and the oracle below do not
 	m, n, k := int(m8)%40, int(n8)%40, int(k8)%40
 	trA, trB := blas.Transpose(tA), blas.Transpose(tB)
 	rowsA, colsA, rowsB, colsB := m, k, k, n
@@ -130,6 +131,9 @@ func fuzzGemm[T float](t *testing.T, tA, tB byte, m8, n8, k8, ldaD, ldbD, ldcD, 
 		}
 		return
 	}
+	if scalarsModest(alpha, beta) {
+		classes(t, flavor, outs[0], outs[1])
+	}
 	if flavor%5 != 0 || !modest(a, b, c0) || !scalarsModest(alpha, beta) {
 		return
 	}
@@ -147,6 +151,7 @@ func fuzzGemm[T float](t *testing.T, tA, tB byte, m8, n8, k8, ldaD, ldbD, ldcD, 
 }
 
 func fuzzGemv[T float](t *testing.T, tr byte, m8, n8, ldaD int8, incx8, incy8 int8, dA, dX, dY int8, alpha, beta T, flavor uint8, seed uint64, impls []impl[T]) {
+	tr = upper(tr)
 	m, n := int(m8)%40, int(n8)%40
 	incx, incy := int(incx8)%5, int(incy8)%5
 	lenx, leny := n, m
@@ -172,6 +177,9 @@ func fuzzGemv[T float](t *testing.T, tr byte, m8, n8, ldaD int8, incx8, incy8 in
 		}
 		return
 	}
+	if scalarsModest(alpha, beta) {
+		classes(t, flavor, outs[0], outs[1])
+	}
 	if flavor%5 != 0 || !modest(a, x, y0) || !scalarsModest(alpha, beta) || m == 0 || n == 0 || (alpha == 0 && beta == 1) {
 		return
 	}
@@ -195,6 +203,9 @@ func fuzzDot[T float](t *testing.T, n8, incx8, incy8, dX, dY int8, flavor uint8,
 	}
 	if !sameErr(errs[0], errs[1]) {
 		t.Fatalf("blas and netlib disagree: %v, %v", errs[0], errs[1])
+	}
+	if errs[0] == nil {
+		classes(t, flavor, got[:1], got[1:])
 	}
 	if errs[0] != nil || flavor%5 != 0 || !modest(x, y) || n <= 0 {
 		return
@@ -224,6 +235,9 @@ func fuzzAxpy[T float](t *testing.T, n8, incx8, incy8, dX, dY int8, alpha T, fla
 			t.Fatal("an error modified y")
 		}
 		return
+	}
+	if scalarsModest(alpha) {
+		classes(t, flavor, outs[0], outs[1])
 	}
 	// incy = 0 accumulates into one cell; the oracle's elementwise form does not apply.
 	if flavor%5 != 0 || !modest(x, y0) || !scalarsModest(alpha) || n <= 0 || alpha == 0 || incy == 0 {
@@ -256,6 +270,9 @@ func fuzzScal[T float](t *testing.T, n8, incx8, dX int8, alpha T, flavor uint8, 
 		}
 		return
 	}
+	if scalarsModest(alpha) {
+		classes(t, flavor, outs[0], outs[1])
+	}
 	if flavor%5 != 0 || !modest(x0) || !scalarsModest(alpha) || n <= 0 || incx <= 0 || alpha == 1 {
 		return
 	}
@@ -281,6 +298,9 @@ func fuzzNrm2[T float](t *testing.T, n8, incx8, dX int8, flavor uint8, seed uint
 	}
 	// nrm2 has no magnitude restriction: it is built not to overflow, but the
 	// oracle's bound is only stated for the representable, normal results.
+	if errs[0] == nil {
+		classes(t, flavor, got[:1], got[1:])
+	}
 	if errs[0] != nil || flavor%5 != 0 || !modest(x) || n <= 0 {
 		return
 	}
@@ -301,6 +321,9 @@ func fuzzAsum[T float](t *testing.T, n8, incx8, dX int8, flavor uint8, seed uint
 	}
 	if !sameErr(errs[0], errs[1]) {
 		t.Fatalf("blas and netlib disagree: %v, %v", errs[0], errs[1])
+	}
+	if errs[0] == nil {
+		classes(t, flavor, got[:1], got[1:])
 	}
 	if errs[0] != nil || flavor%5 != 0 || !modest(x) || n <= 0 || incx <= 0 {
 		return
@@ -464,4 +487,25 @@ func FuzzIsamax(f *testing.F) {
 	f.Fuzz(func(t *testing.T, n, incx, dX int8, flavor uint8, seed uint64) {
 		fuzzIamax(t, n, incx, dX, flavor, seed, impls32)
 	})
+}
+
+// classes asserts that two results are of the same class: NaN with NaN, an
+// infinity with the infinity of the same sign, a finite value with a finite one.
+// It is the check that remains when data holds a planted NaN or infinity and
+// the bound, which is stated for finite data, does not apply. It runs for the
+// planted NaN and infinity flavors only: a planted huge value can overflow in
+// one summation order and not in the other.
+func classes[T float](t *testing.T, flavor uint8, a, b []T) {
+	t.Helper()
+	if f := flavor % 5; f != 1 && f != 2 {
+		return
+	}
+	for i := range a {
+		x, y := float64(a[i]), float64(b[i])
+		switch {
+		case math.IsNaN(x) != math.IsNaN(y), math.IsInf(x, 0) != math.IsInf(y, 0),
+			math.IsInf(x, 0) && math.Signbit(x) != math.Signbit(y):
+			t.Fatalf("blas %v and netlib %v are not of the same class (element %d)", a[i], b[i], i)
+		}
+	}
 }
