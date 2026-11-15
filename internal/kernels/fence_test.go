@@ -1,0 +1,142 @@
+//go:build (amd64 || arm64 || ppc64le || loong64 || riscv64 || s390x) && (linux || darwin)
+
+package kernels
+
+import (
+	"os"
+	"syscall"
+	"testing"
+	"unsafe"
+)
+
+// The assembly kernels take raw pointers and trust their Go wrappers for the
+// lengths: an off-by-one in a tail loop, or a load issued one iteration early,
+// reads or writes memory that is not the slice's. Go's bounds checks cannot see
+// inside a .s file, and a stray access into the rest of the heap goes unnoticed.
+//
+// A fence makes it fault instead. Each operand is placed flush against an
+// inaccessible page (PROT_NONE), once ending at the page and once starting
+// right after one, so an access a single element past either end is a
+// SIGSEGV. Prefetches are hints and do not fault, so the kernels' prefetching
+// past the end is allowed, as the hardware allows it.
+
+// fenced is a mapping of [guard | data | guard] whose data region holds at
+// least n float64s.
+type fenced struct {
+	mem  []byte
+	data []float64 // the whole region between the guards
+}
+
+func newFenced(t *testing.T, n int) *fenced {
+	t.Helper()
+	pg := os.Getpagesize()
+	dataBytes := (n*8 + pg - 1) / pg * pg
+	mem, err := syscall.Mmap(-1, 0, dataBytes+2*pg,
+		syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_ANON|syscall.MAP_PRIVATE)
+	if err != nil {
+		t.Fatalf("mmap: %v", err)
+	}
+	t.Cleanup(func() { syscall.Munmap(mem) })
+	for _, g := range [][]byte{mem[:pg], mem[pg+dataBytes:]} {
+		if err := syscall.Mprotect(g, syscall.PROT_NONE); err != nil {
+			t.Fatalf("mprotect: %v", err)
+		}
+	}
+	d := unsafe.Slice((*float64)(unsafe.Pointer(&mem[pg])), dataBytes/8)
+	for i := range d {
+		d[i] = float64(i%7) + 1 // positive, so sqrt and div stay finite
+	}
+	return &fenced{mem: mem, data: d}
+}
+
+// head is n elements starting right after the leading guard; tail is n
+// elements ending right before the trailing guard.
+func (f *fenced) head(n int) []float64 { return f.data[:n:n] }
+func (f *fenced) tail(n int) []float64 { return f.data[len(f.data)-n:] }
+
+// fences returns, for n elements, the operand placements to try.
+func fences(t *testing.T, n int) [][]float64 {
+	f := newFenced(t, n)
+	return [][]float64{f.head(n), f.tail(n)}
+}
+
+// fences32 is fences for float32 operands: the same mappings, viewed as
+// float32, with n elements flush against each guard.
+func fences32(t *testing.T, n int) [][]float32 {
+	f := newFenced(t, (n+1)/2)
+	d := unsafe.Slice((*float32)(unsafe.Pointer(&f.data[0])), 2*len(f.data))
+	return [][]float32{d[:n:n], d[len(d)-n:]}
+}
+
+func TestGemmMicroStaysInsideItsOperands(t *testing.T) {
+	run := func() {
+		for kc := 1; kc <= 9; kc++ {
+			for _, ldc := range []int{NR, NR + 3, 64} {
+				for _, pa := range fences(t, kc*MR) {
+					for _, pb := range fences(t, kc*NR) {
+						for _, dst := range fences(t, (MR-1)*ldc+NR) {
+							gemmMicro(kc, pa, pb, dst, ldc)
+						}
+					}
+				}
+			}
+		}
+	}
+	run()
+	forEachFallback(run)
+	if gemm64.microUA == nil {
+		return
+	}
+	for kc := 1; kc <= 9; kc++ {
+		for _, ldc := range []int{NR, NR + 3} {
+			for _, ldb := range []int{NR, NR + 5} { // a packed panel, a row-major B in place
+				b := fences(t, (kc-1)*ldb+NR)[1]
+				for mr := 1; mr <= MR; mr++ {
+					for _, lda := range []int{kc, kc + 5} {
+						for _, a := range fences(t, (mr-1)*lda+kc) {
+							for _, dst := range fences(t, (mr-1)*ldc+NR) {
+								gemm64.microUA(kc, a, lda, b, ldb, dst, ldc, mr)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// TestGemmMicro32StaysInsideItsOperands fences the float32 GEMM kernel's
+// panels and C tile, where there is one.
+func TestGemmMicro32StaysInsideItsOperands(t *testing.T) {
+	g := gemm32
+	if g == nil {
+		t.Skip("no float32 GEMM kernel here")
+	}
+	for kc := 1; kc <= 9; kc++ {
+		// a row-major B read in place by microUA, rows g.nr+5 apart, ending
+		// flush against the guard
+		bs := fences32(t, (kc-1)*(g.nr+5)+g.nr)[1]
+		for _, ldc := range []int{g.nr, g.nr + 3, 64} {
+			for _, pa := range fences32(t, kc*g.mr) {
+				for _, pb := range fences32(t, kc*g.nr) {
+					for _, dst := range fences32(t, (g.mr-1)*ldc+g.nr) {
+						g.micro(kc, pa, pb, dst, ldc)
+					}
+					if g.microUA == nil {
+						continue
+					}
+					for mr := 1; mr <= g.mr; mr++ {
+						for _, lda := range []int{kc, kc + 5} {
+							for _, a := range fences32(t, (mr-1)*lda+kc) {
+								for _, dst := range fences32(t, (mr-1)*ldc+g.nr) {
+									g.microUA(kc, a, lda, pb, g.nr, dst, ldc, mr)
+									g.microUA(kc, a, lda, bs, g.nr+5, dst, ldc, mr)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
