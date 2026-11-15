@@ -181,20 +181,23 @@ returns.
      product and 2 for `alpha` and the accumulation, `ib + k + 3 <= s + 3`.
    * trsm, a **backward error (residual) bound**, not a forward one:
      `|op(A) X^ - alpha B| <= gamma_{s+4}(|op(A)||X^| + |alpha B|)`, elementwise.
-     A blocked solve on GEMM is substitution with a different grouping of its
-     sums, so it inherits the backward-error result of substitution: the computed
-     solution of a triangular system satisfies `(T + dT) x^ = b'`, `|dT| <=
-     gamma_s |T|`, whatever the order in which the sums are evaluated. The
-     update's multiplier `-1` is exact and its addition is one of the `s` sums
-     already counted, so the update adds no rounding. The only other rounding is
-     that of `alpha*B`, which gives the derived bound `gamma_s |op(A)||X^| + u
-     |alpha B|` (the second term is absent for `alpha = 1`). The asserted bound,
-     `gamma_{s+4}` on both terms, is a conservative form of it that leaves room
-     for the kernel's accumulation into C in blocks; it is not the tightest bound
-     the derivation gives. **Higham's text (ch. 8, Theorem 8.5 and Lemma 8.4) was
-     not opened, neither when this was written nor when it was reviewed: the
-     result is quoted from memory, and what asserts the bound is the tests, not
-     a citation.** It was chosen over the forward
+     **Source, opened 2026-11-15:** J. W. Demmel and N. J. Higham, *Stability
+     of Block Algorithms with Fast Level 3 BLAS*, LAPACK Working Note 22 (July
+     27, 1990), http://www.netlib.org/lapack/lawnspdf/lawn22.pdf. Page 4, eq.
+     (4): for the substitution algorithms for `T X = B`, `T` of order `m`,
+     `T X^ = B + dB`, `|dB| <= (m+1) u |T||X^| + O(u^2)`. That is a first-order
+     componentwise residual bound with constant `m+1`. Page 3 adds the caveat
+     that matters here: for block algorithms with conventional BLAS3, "it is
+     generally accepted that the same stability results are valid, although we
+     are not aware of any detailed proofs". So for this BLOCKED trsm the bound
+     is asserted by the tests against the 256-bit oracle, not by a proof.
+     The rounding of `alpha*B` adds `u |alpha B|` (absent for `alpha = 1`). The
+     asserted bound, `gamma_{s+4}` on both terms, is the first-order constant
+     `s+1` widened by 3, in the non-asymptotic `gamma` form; it is conservative,
+     not the tightest. The constant did not change when the source was read.
+     Higham's book (*Accuracy and Stability of Numerical Algorithms*, 2nd ed.,
+     ch. 8, Theorem 8.5 and Lemma 8.4), which states the non-asymptotic
+     `gamma_n` form for substitution, was NOT opened; it is named, not cited. It was chosen over the forward
      form `|x - x^| <= gamma_n cond(T, x)|x|` because the latter needs the exact
      solution, and so a condition number that a test must construct and a fuzz
      target cannot, whereas the residual is computed exactly from the computed
