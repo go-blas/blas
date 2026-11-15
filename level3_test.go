@@ -36,6 +36,27 @@ func forEachTri(shapes [][2]int, f func(side blas.Side, uplo blas.Uplo, tA blas.
 	}
 }
 
+// triAlphas are the alphas of the triangular tests: the reference branches on
+// alpha = 1 (no scaling) and any other. The 256-bit oracle is the cost of these
+// tests (a multiple of it under -race), so with the small block orders, which
+// are there for the block structure, a single general alpha is used.
+func triAlphas[T float](bs int) []T {
+	if bs == 64 {
+		return []T{1, -0.75, 2.5}
+	}
+	return []T{-0.75}
+}
+
+// rankSkip reports whether a (shape, scalar pair) of Syrk and Syr2k is left out:
+// with the small block orders only the general and the zero pairs run, and not the
+// long contraction; the cost of the largest products is kept to one pair.
+func rankSkip(bs, n, k, ai, limit int) bool {
+	if bs != 64 && (k > 100 || (ai != 3 && ai != 4 && ai != 6)) {
+		return true
+	}
+	return n*n*k > limit && ai != 3
+}
+
 func orderOf(side blas.Side, m, n int) int {
 	if side == blas.Left {
 		return m
@@ -53,7 +74,7 @@ func testTrsmBound[T float](t *testing.T, im impl[T]) {
 		rng := newRNG(11)
 		forEachTri(shapes, func(side blas.Side, uplo blas.Uplo, tA blas.Transpose, diag blas.Diag, m, n, pad int) {
 			s := orderOf(side, m, n)
-			for _, alpha := range []T{1, -0.75, 2.5} {
+			for _, alpha := range triAlphas[T](bs) {
 				lda, ldb := max(1, s)+pad, max(1, m)+pad
 				a := triMatrix[T](rng, s, lda, uplo == blas.Upper, diag == blas.Unit, true)
 				b := matrix[T](rng, m, n, ldb)
@@ -84,7 +105,7 @@ func testTrmmBound[T float](t *testing.T, im impl[T]) {
 		rng := newRNG(12)
 		forEachTri(shapes, func(side blas.Side, uplo blas.Uplo, tA blas.Transpose, diag blas.Diag, m, n, pad int) {
 			s := orderOf(side, m, n)
-			for _, alpha := range []T{1, -0.75, 2.5} {
+			for _, alpha := range triAlphas[T](bs) {
 				lda, ldb := max(1, s)+pad, max(1, m)+pad
 				a := triMatrix[T](rng, s, lda, uplo == blas.Upper, diag == blas.Unit, false)
 				b := matrix[T](rng, m, n, ldb)
@@ -263,7 +284,7 @@ func testSyrkBound[T float](t *testing.T, im impl[T]) {
 			for _, uplo := range uplos {
 				for _, tr := range trans2 {
 					for ai, ab := range syrkAB {
-						if n*n*k > 100000 && ai != 3 { // the oracle's cost
+						if rankSkip(bs, n, k, ai, 100000) { // the oracle's cost
 							continue
 						}
 						pad := 3 * ((si + ai) % 2)
@@ -320,7 +341,7 @@ func testSyr2kBound[T float](t *testing.T, im impl[T]) {
 			for _, uplo := range uplos {
 				for _, tr := range trans2 {
 					for ai, ab := range syrkAB {
-						if n*n*k > 50000 && ai != 3 {
+						if rankSkip(bs, n, k, ai, 50000) {
 							continue
 						}
 						pad := 3 * ((si + ai) % 2)

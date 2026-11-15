@@ -205,6 +205,28 @@ returns.
    the fuzz targets compare by class. Each routine is not safe with an output that
    overlaps an input.
 
+   *Measured* against netlib's ports of the reference (not against OpenBLAS or
+   MKL, which this repository has no run of), `level3_bench_test.go`, a
+   cross-compiled test binary on cfarm420 (AMD EPYC 7773X, linux/amd64),
+   `taskset -c 9`, `GOMAXPROCS=1`, 1-minute load 2.4 before and after, 10
+   iterations, `blockSize` 64, 2026-11-15. Gflop/s counts `n^3` flops for trsm,
+   trmm and syrk and `2n^3` for syr2k and symm (the flops of the operation, not
+   of what the blocked code does); one run, no confidence interval, and one core
+   of a shared machine:
+
+   | n = 512 | float64 blas | float64 netlib | float32 blas | float32 netlib |
+   |---|---|---|---|---|
+   | trsm | 10.4 | 2.3 | 11.4 | 2.3 |
+   | trmm | 11.7 | 2.5 | 14.2 | 2.3 |
+   | syrk | 21.3 | 1.9 | 36.5 | 2.0 |
+   | syr2k | 23.3 | 2.8 | 38.4 | 3.0 |
+   | symm | 30.1 | 3.2 | 63.9 | 3.7 |
+
+   trsm and trmm run at about half of syrk's rate: the diagonal blocks are the
+   reference's scalar loops (`blockSize/m`, an eighth of the flops at n = 512,
+   at scalar speed). A smaller diagonal kernel, or recursion into it, is the
+   obvious next step and would be a measurement away from a kernel of its own.
+
    *Fuzz*: one target per routine and type (ten), each comparing blas with netlib
    (same `*ArgError`, same class of NaN or infinity, an error or a quick return
    leaves the outputs as they were) and, on finite data of moderate magnitude, both
@@ -246,5 +268,5 @@ disables each in turn and requires the tests to fail by an assertion: a
 mutant that survives is an untested guard, and one that ends in a panic is a
 guard the language found for us. `-only a,b` restricts the mutants to the files
 whose path contains one of the strings, and `-pkgs` the packages the tests of each
-mutant run on (CI runs them all). The routines never panic, and a test turns a
+mutant run on, `-run` the tests (CI runs them all). The routines never panic, and a test turns a
 panic of the routine under test into a failed assertion (`noPanic`).

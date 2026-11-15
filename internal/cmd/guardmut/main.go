@@ -38,6 +38,7 @@ func main() {
 	root := flag.String("root", ".", "the repository root")
 	only := flag.String("only", "", "mutate only the guards of files whose path contains one of these comma-separated strings (default: all)")
 	flag.StringVar(&testPkgs, "pkgs", "./...", "the packages to run the tests of, for each mutant")
+	flag.StringVar(&testRun, "run", "", "run only the tests matching this regexp (go test -run), for each mutant; default: all but the fuzz targets")
 	flag.Parse()
 	guards, err := find(*root)
 	if err != nil {
@@ -70,7 +71,7 @@ func main() {
 }
 
 // testPkgs is the package pattern the tests of each mutant run on.
-var testPkgs = "./..."
+var testPkgs, testRun = "./...", ""
 
 // filter keeps the guards of the files whose path contains one of subs.
 func filter(gs []guard, subs []string) []guard {
@@ -167,7 +168,11 @@ func mutate(root string, g guard) (verdict, text string) {
 // run runs the tests of the module at root, fuzz targets excluded, and reports
 // the output and whether they passed.
 func run(root string) (string, bool) {
-	cmd := exec.Command("go", "test", "-count=1", "-skip", "^Fuzz", testPkgs)
+	args := []string{"test", "-count=1", "-skip", "^Fuzz"}
+	if testRun != "" {
+		args = append(args, "-run", testRun)
+	}
+	cmd := exec.Command("go", append(args, testPkgs)...)
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	return string(out), err == nil
