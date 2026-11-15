@@ -168,8 +168,9 @@ returns.
    ku/(1-ku)` and `s` the order of A:
    * syrk: `gamma_{k+2}(|alpha||op(A)||op(A)^T| + |beta||C|)`, gemm's bound. A tile
      off the diagonal is a GEMM; on the diagonal the tile has `k` terms, then
-     `alpha*t`, `beta*c` and their sum: `k+3` roundings on the one term and 2 on
-     the other, inside `k+2`.
+     `alpha*t`, `beta*c` and their sum: `k+2` roundings on the product term (`k`,
+     the product by alpha, the sum) and 2 on the `beta` term (the product, the
+     sum): exactly `k+2`.
    * syr2k: `gamma_{2k+2}(|alpha|(|op(A)||op(B)^T| + |op(B)||op(A)^T|) + |beta||C|)`.
      Two GEMMs accumulated into C cost at most `k+3` on any term (`k+3 <= 2k+2` for
      `k >= 1`), and the reference's own loops `2k+2`.
@@ -180,23 +181,26 @@ returns.
      product and 2 for `alpha` and the accumulation, `ib + k + 3 <= s + 3`.
    * trsm, a **backward error (residual) bound**, not a forward one:
      `|op(A) X^ - alpha B| <= gamma_{s+4}(|op(A)||X^| + |alpha B|)`, elementwise.
-     It is the componentwise backward stability of substitution (Higham,
-     *Accuracy and Stability of Numerical Algorithms*, ch. 8: the computed
-     solution of a triangular system satisfies `(T + dT) x^ = b`, `|dT| <=
-     gamma_n |T|`, for any order of the summations), which is what a blocked
-     solve inherits: each unknown is obtained from `b` by the same chain of at
-     most `s` additions and one division (the GEMM sums are of the solved
-     unknowns, in any order, and the update's own scaling adds two roundings, the
-     scaling of B by alpha one more, hence `s+4`). It was chosen over the forward
+     A blocked solve on GEMM is substitution with a different grouping of its
+     sums, so it inherits the backward-error result of substitution: the computed
+     solution of a triangular system satisfies `(T + dT) x^ = b'`, `|dT| <=
+     gamma_s |T|`, whatever the order in which the sums are evaluated. The
+     update's multiplier `-1` is exact and its addition is one of the `s` sums
+     already counted, so the update adds no rounding. The only other rounding is
+     that of `alpha*B`, which gives the derived bound `gamma_s |op(A)||X^| + u
+     |alpha B|` (the second term is absent for `alpha = 1`). The asserted bound,
+     `gamma_{s+4}` on both terms, is a conservative form of it that leaves room
+     for the kernel's accumulation into C in blocks; it is not the tightest bound
+     the derivation gives. **Higham's text (ch. 8, Theorem 8.5 and Lemma 8.4) was
+     not opened, neither when this was written nor when it was reviewed: the
+     result is quoted from memory, and what asserts the bound is the tests, not
+     a citation.** It was chosen over the forward
      form `|x - x^| <= gamma_n cond(T, x)|x|` because the latter needs the exact
      solution, and so a condition number that a test must construct and a fuzz
      target cannot, whereas the residual is computed exactly from the computed
      `X^`, with no assumption on the conditioning of `A`: the fuzz targets run
      on arbitrary, ill-conditioned triangles. The forward bound follows from it
-     by the usual `|x - x^| <= |T^-1||dT||x^|`. *Higham's text was not open in this
-     session*: the statement above is the standard result, given here with its
-     derivation sketched, and it is the tests, not the citation, that assert
-     it. A zero on the diagonal is not tested for, as in the reference.
+     by the usual `|x - x^| <= |T^-1||dT||x^|`. A zero on the diagonal is not tested for, as in the reference.
 
    *Not promised*: bit identity with netlib (the order of the sums differs, and
    the reference skips a product when a factor is exactly zero where GEMM forms it,
