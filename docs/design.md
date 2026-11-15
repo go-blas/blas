@@ -116,8 +116,8 @@ returns.
    every storage of A, B and C. It runs the same packed kernel through
    `MatMulLDStridedP`: no new kernel. Where `Dgemm` builds a `Mat` from `lda`
    and the transpose flag, this builds it from the two strides; for the same
-   matrices the result is bit for bit that of `Dgemm`
-   (`TestGemmStridedSameAsGemm`). Without a float32 kernel `SgemmStrided` runs
+   matrices the result is bit for bit that of `Dgemm` (float64,
+   `TestGemmStridedSameAsGemm`; float32 where there is a kernel). Without a float32 kernel `SgemmStrided` runs
    plain loops over the strides. `HasSgemmKernel` reports whether it has one.
 
 ## What was moved from go-ndarray
