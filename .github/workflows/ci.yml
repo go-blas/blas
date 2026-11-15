@@ -42,7 +42,10 @@ jobs:
         with:
           go-version: 1.27.3
       - run: go version
+      # Windows checks files out with CRLF, which gofmt lists; the Linux and
+      # macOS lanes are the formatting authority.
       - name: gofmt must print nothing
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           out=$(gofmt -l .)
@@ -94,7 +97,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: 1.27.3
-      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
   # Native per-arch execution. amd64/arm64 have GitHub-hosted runners, so the
   # generated assembly runs natively. Each regenerates the committed .s via
