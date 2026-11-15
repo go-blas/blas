@@ -141,6 +141,8 @@ func TestTrmmBound(t *testing.T) { each(t, testTrmmBound[float64], testTrmmBound
 
 // alpha = 0 sets B to zero, whatever B holds, and does not read A.
 func testTriAlphaZero[T float](t *testing.T, im impl[T]) {
+	// A block order below m: the blocked code would slice the empty A.
+	blas.SetBlockSize(t, 4)
 	rng := newRNG(13)
 	for name, f := range map[string]func(blas.Side, blas.Uplo, blas.Transpose, blas.Diag, int, int, T, []T, int, []T, int) error{"trsm": im.trsm, "trmm": im.trmm} {
 		for _, side := range sides {
