@@ -207,7 +207,14 @@ returns.
 
    *Not promised*: bit identity with netlib (the order of the sums differs, and
    the reference skips a product when a factor is exactly zero where GEMM forms it,
-   so that an infinity times such a zero is NaN here); special values travel the
+   so that an infinity times such a zero is NaN here). OpenBLAS sides with this
+   package, not with netlib: measured by go-embedded-julia on 2026-11-15 with
+   julia 1.12.6 over libopenblas64_ (ILP64, one thread, 4×4 so the BLAS path is
+   taken), `zeros(4,4) * fill(Inf,4,4)` and `zeros(4,4) * fill(Inf,4)` give NaN.
+   What all three agree on: beta = 0 never reads C (or y), and alpha = 0 reads
+   neither A nor B (julia's `gemm!` with alpha = 0 over an Inf-filled A returns
+   beta·C); the tests hold both for every routine, with NaN planted in C under
+   beta = 0 and nil operands under alpha = 0. Special values travel the
    same way when the data are finite apart from a planted NaN or infinity, which
    the fuzz targets compare by class. Each routine is not safe with an output that
    overlaps an input.
