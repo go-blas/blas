@@ -64,7 +64,8 @@ returns.
    on which fused and unfused differ. Ported files: `dgemm.f`, `sgemm.f`,
    `dgemv.f`, `sgemv.f`, `ddot.f`, `sdot.f`, `daxpy.f`, `saxpy.f`, `dscal.f`,
    `sscal.f`, `dnrm2.f90`, `snrm2.f90`, `dasum.f`, `sasum.f`, `idamax.f`,
-   `isamax.f`. Double and single precision share one generic implementation
+   `isamax.f`, and (decision 9) `dtrsm.f`, `strsm.f`, `dtrmm.f`, `strmm.f`,
+   `dsyrk.f`, `ssyrk.f`, `dsyr2k.f`, `ssyr2k.f`, `dsymm.f`, `ssymm.f`. Double and single precision share one generic implementation
    (`internal/ref`), which differ only in the type and the four constants of
    nrm2. They are the equality oracle of the tests while porting, and the
    fallback of `Sgemm`.
@@ -120,6 +121,124 @@ returns.
    `TestGemmStridedSameAsGemm`; float32 where there is a kernel). Without a float32 kernel `SgemmStrided` runs
    plain loops over the strides. `HasSgemmKernel` reports whether it has one.
 
+9. **The rest of level 3, `Strsm`/`Dtrsm`, `Strmm`/`Dtrmm`, `Ssyrk`/`Dsyrk`,
+   `Ssyr2k`/`Dsyr2k`, `Ssymm`/`Dsymm`, built on the one GEMM.** They are the
+   reference signatures (`side`, `uplo`, `transA`, `diag` as `Side`, `Uplo`,
+   `Transpose`, `Diag`, case-insensitive), with xerbla's numbers: trsm and trmm
+   side 1, uplo 2, transA 3, diag 4, m 5, n 6, alpha 7, a 8, lda 9, b 10, ldb 11;
+   syrk uplo 1, trans 2, n 3, k 4, alpha 5, a 6, lda 7, beta 8, c 9, ldc 10;
+   syr2k the same with b 8, ldb 9, beta 10, c 11, ldc 12; symm side 1, uplo 2, m
+   3, n 4, alpha 5, a 6, lda 7, b 8, ldb 9, beta 10, c 11, ldc 12. The checks are
+   in `internal/check` (`Tr`, `TrLens`, `Syrk`, `Syr2k`, `Symm` and their `Lens`),
+   shared by `blas` and `netlib`; the quick returns are the reference's (trsm and
+   trmm: `m = 0` or `n = 0`; syrk and syr2k: `n = 0`, or `alpha = 0` or `k = 0`
+   with `beta = 1`; symm: `m = 0`, `n = 0`, or `alpha = 0` with `beta = 1`), taken
+   before the slice-length checks, and a slice a call does not read (A and B for
+   `alpha = 0`) is not checked.
+
+   *Algorithms*, as in GotoBLAS and BLIS: a blocked algorithm whose bulk is GEMM
+   and whose diagonal is a small triangular kernel, here the reference loops of
+   `internal/ref` (ports of `dtrsm.f`, `dtrmm.f`, `dsyrk.f`, `dsyr2k.f`,
+   `dsymm.f` of Reference-LAPACK 3.12.0, in loop order, no FMA, each product
+   wrapped in a conversion; they are `netlib`'s routines). No micro-kernel was
+   written. `blockSize` (64) is the order of a diagonal block, a variable only so
+   that the tests can make 40-row matrices span many blocks.
+   * *trsm* solves block row by block row (Left) or block column by block column
+     (Right), in the order the triangle dictates: B is scaled by alpha once, a block
+     is B minus the GEMM of the blocks already solved, then substitution on the
+     diagonal block. *trmm* is the same in the opposite order, so that the blocks
+     a GEMM reads are still the original ones: the diagonal block in place, plus
+     the GEMM of the other blocks of the row or column.
+   * *syrk*, *syr2k* cut the triangle of C into tiles: a tile off the diagonal is
+     a GEMM (two for syr2k), a diagonal tile is one GEMM into a pooled scratch
+     tile whose triangle is merged into C (for syr2k the tile product A B**T, and
+     the merge takes `t + t**T`). The other triangle of C is never written.
+   * *symm* copies the referenced triangle, exactly, into a dense s x s scratch
+     matrix, s the order of A (at most the size of A, which the length check
+     guarantees the caller holds), and is one GEMM.
+   Without a float32 kernel (and for `alpha = 0`, and syrk/syr2k with `k = 0`) the
+   routine runs the reference loops.
+
+   *Bounds*, asserted against the 256-bit oracle for every combination of side,
+   uplo, trans and diag, padded leading dimensions, zero dimensions, `alpha = 0`,
+   `beta = 0` (C holding NaN), two block sizes, `float32` and `float64`, with NaN
+   in every element the routine must not read (the other triangle, the diagonal of
+   a unit triangle) so a routine that reads one fails by its result; the other
+   triangle of C is asserted untouched. With `u` the unit roundoff, `gamma_k =
+   ku/(1-ku)` and `s` the order of A:
+   * syrk: `gamma_{k+2}(|alpha||op(A)||op(A)^T| + |beta||C|)`, gemm's bound. A tile
+     off the diagonal is a GEMM; on the diagonal the tile has `k` terms, then
+     `alpha*t`, `beta*c` and their sum: `k+2` roundings on the product term (`k`,
+     the product by alpha, the sum) and 2 on the `beta` term (the product, the
+     sum): exactly `k+2`.
+   * syr2k: `gamma_{2k+2}(|alpha|(|op(A)||op(B)^T| + |op(B)||op(A)^T|) + |beta||C|)`.
+     Two GEMMs accumulated into C cost at most `k+3` on any term (`k+3 <= 2k+2` for
+     `k >= 1`), and the reference's own loops `2k+2`.
+   * symm: `gamma_{s+2}(|alpha||A||B| + |beta||C|)`, gemm's with `k = s`, the copy
+     being exact.
+   * trmm: `gamma_{s+3}|alpha||op(A)||B|`: on one element the reference loops of a
+     diagonal block contribute at most `ib+1` roundings, the GEMM `k` for its
+     product and 2 for `alpha` and the accumulation, `ib + k + 3 <= s + 3`.
+   * trsm, a **backward error (residual) bound**, not a forward one:
+     `|op(A) X^ - alpha B| <= gamma_{s+4}(|op(A)||X^| + |alpha B|)`, elementwise.
+     A blocked solve on GEMM is substitution with a different grouping of its
+     sums, so it inherits the backward-error result of substitution: the computed
+     solution of a triangular system satisfies `(T + dT) x^ = b'`, `|dT| <=
+     gamma_s |T|`, whatever the order in which the sums are evaluated. The
+     update's multiplier `-1` is exact and its addition is one of the `s` sums
+     already counted, so the update adds no rounding. The only other rounding is
+     that of `alpha*B`, which gives the derived bound `gamma_s |op(A)||X^| + u
+     |alpha B|` (the second term is absent for `alpha = 1`). The asserted bound,
+     `gamma_{s+4}` on both terms, is a conservative form of it that leaves room
+     for the kernel's accumulation into C in blocks; it is not the tightest bound
+     the derivation gives. **Higham's text (ch. 8, Theorem 8.5 and Lemma 8.4) was
+     not opened, neither when this was written nor when it was reviewed: the
+     result is quoted from memory, and what asserts the bound is the tests, not
+     a citation.** It was chosen over the forward
+     form `|x - x^| <= gamma_n cond(T, x)|x|` because the latter needs the exact
+     solution, and so a condition number that a test must construct and a fuzz
+     target cannot, whereas the residual is computed exactly from the computed
+     `X^`, with no assumption on the conditioning of `A`: the fuzz targets run
+     on arbitrary, ill-conditioned triangles. The forward bound follows from it
+     by the usual `|x - x^| <= |T^-1||dT||x^|`. A zero on the diagonal is not tested for, as in the reference.
+
+   *Not promised*: bit identity with netlib (the order of the sums differs, and
+   the reference skips a product when a factor is exactly zero where GEMM forms it,
+   so that an infinity times such a zero is NaN here); special values travel the
+   same way when the data are finite apart from a planted NaN or infinity, which
+   the fuzz targets compare by class. Each routine is not safe with an output that
+   overlaps an input.
+
+   *Measured* against netlib's ports of the reference (not against OpenBLAS or
+   MKL, which this repository has no run of), `level3_bench_test.go`, a
+   cross-compiled test binary on cfarm420 (AMD EPYC 7773X, linux/amd64),
+   `taskset -c 9`, `GOMAXPROCS=1`, 1-minute load 2.4 before and after, 10
+   iterations, `blockSize` 64, 2026-11-15. Gflop/s counts `n^3` flops for trsm,
+   trmm and syrk and `2n^3` for syr2k and symm (the flops of the operation, not
+   of what the blocked code does); one run, no confidence interval, and one core
+   of a shared machine:
+
+   | n = 512 | float64 blas | float64 netlib | float32 blas | float32 netlib |
+   |---|---|---|---|---|
+   | trsm | 10.4 | 2.3 | 11.4 | 2.3 |
+   | trmm | 11.7 | 2.5 | 14.2 | 2.3 |
+   | syrk | 21.3 | 1.9 | 36.5 | 2.0 |
+   | syr2k | 23.3 | 2.8 | 38.4 | 3.0 |
+   | symm | 30.1 | 3.2 | 63.9 | 3.7 |
+
+   trsm and trmm run at about half of syrk's rate: the diagonal blocks are the
+   reference's scalar loops (`blockSize/m`, an eighth of the flops at n = 512,
+   at scalar speed). A smaller diagonal kernel, or recursion into it, is the
+   obvious next step and would be a measurement away from a kernel of its own.
+
+   *Fuzz*: one target per routine and type (ten), each comparing blas with netlib
+   (same `*ArgError`, same class of NaN or infinity, an error or a quick return
+   leaves the outputs as they were) and, on finite data of moderate magnitude, both
+   with the oracle's bound; the input chooses the block order, so that matrices
+   below 40 rows span several blocks. For trsm the finite entries of A are scaled
+   to a well-conditioned triangle before the class comparison, since a random
+   triangle overflows in one order of summation and not in another.
+
 ## What was moved from go-ndarray
 
 From `go-ndarray/ndarray` at `main` (v0.41.3, commit `8370f0f`):
@@ -151,5 +270,7 @@ Switching ndarray to this module is a later pull request.
 Every argument guard is a line ending in `// guard`. `internal/cmd/guardmut`
 disables each in turn and requires the tests to fail by an assertion: a
 mutant that survives is an untested guard, and one that ends in a panic is a
-guard the language found for us. The routines never panic, and a test turns a
+guard the language found for us. `-only a,b` restricts the mutants to the files
+whose path contains one of the strings, and `-pkgs` the packages the tests of each
+mutant run on, `-run` the tests (CI runs them all). The routines never panic, and a test turns a
 panic of the routine under test into a failed assertion (`noPanic`).

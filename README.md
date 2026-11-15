@@ -1,7 +1,8 @@
 # blas
 
 Pure-Go BLAS with the Fortran reference signatures, column-major: real
-(`float32`/`float64`) level 1, gemv and gemm, with a SIMD GEMM on six
+(`float32`/`float64`) level 1, gemv and level 3 (gemm, trsm, trmm, syrk, syr2k,
+symm), with a SIMD GEMM on six
 architectures, error bounds stated per routine, and a netlib-exact option.
 Complex (c/z) BLAS and LAPACK are next.
 
@@ -19,6 +20,7 @@ First release line, real routines only:
 
 | Level | Routines (`S` and `D`) |
 |---|---|
+| 3 | `Strsm`/`Dtrsm`, `Strmm`/`Dtrmm`, `Ssyrk`/`Dsyrk`, `Ssyr2k`/`Dsyr2k`, `Ssymm`/`Dsymm`, blocked on the packed GEMM (a residual bound for trsm, see [docs/design.md](docs/design.md) decision 9) |
 | 3 | `Sgemm`, `Dgemm`; `SgemmStrided`, `DgemmStrided` (row and column stride per operand, as BLIS's `bli_?gemm`, no copy of a sliced or transposed view); `HasSgemmKernel` |
 | 2 | `Sgemv`, `Dgemv` |
 | 1 | `Sdot`/`Ddot`, `Saxpy`/`Daxpy`, `Sscal`/`Dscal`, `Snrm2`/`Dnrm2`, `Sasum`/`Dasum`, `Isamax`/`Idamax` |
@@ -59,7 +61,8 @@ packing.
 
 `github.com/go-blas/blas/netlib` has the same routines as plain-Go ports of
 reference BLAS 3.12 (`dgemm.f`, `sgemm.f`, `dgemv.f`, `sgemv.f`, `ddot.f`,
-`daxpy.f`, `dscal.f`, `dnrm2.f90`, `dasum.f`, `idamax.f` and their single
+`daxpy.f`, `dscal.f`, `dnrm2.f90`, `dasum.f`, `idamax.f`, `dtrsm.f`, `dtrmm.f`,
+`dsyrk.f`, `dsyr2k.f`, `dsymm.f` and their single
 precision twins), in the reference's loop order and without fused multiply-add,
 so the results are the same on every architecture. They are the equality oracle
 of the tests and a public option for callers who need the reference's exact

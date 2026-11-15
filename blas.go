@@ -7,8 +7,9 @@
 //
 // # Scope
 //
-// This release has the real routines in single and double precision: Sgemm,
-// Dgemm, Sgemv, Dgemv and the level 1 routines Sdot/Ddot, Saxpy/Daxpy,
+// This release has the real routines in single and double precision: the level
+// 3 routines Sgemm/Dgemm, Strsm/Dtrsm, Strmm/Dtrmm, Ssyrk/Dsyrk, Ssyr2k/Dsyr2k
+// and Ssymm/Dsymm, Sgemv, Dgemv and the level 1 routines Sdot/Ddot, Saxpy/Daxpy,
 // Sscal/Dscal, Snrm2/Dnrm2, Sasum/Dasum and Isamax/Idamax. Complex routines
 // (Cgemm, Zgemm, Zdotc, ...) and LAPACK follow, under the same naming
 // convention, with complex64 and complex128 slices; nothing here will have to
@@ -23,6 +24,11 @@
 // gamma_k = k*u/(1-k*u):
 //
 //	Gemm   |C^ - C| <= gamma_{k+2} (|alpha| |op(A)| |op(B)| + |beta| |C0|)   elementwise
+//	Trsm   |op(A) X^ - alpha B| <= gamma_{s+4} (|op(A)| |X^| + |alpha B|)   elementwise, s the order of A: a residual (backward error) bound
+//	Trmm   |B^ - alpha op(A) B| <= gamma_{s+3} |alpha| |op(A)| |B|          elementwise
+//	Syrk   |C^ - C| <= gamma_{k+2} (|alpha| |op(A)| |op(A)^T| + |beta| |C0|)   elementwise, on the triangle written
+//	Syr2k  |C^ - C| <= gamma_{2k+2} (|alpha| (|op(A)||op(B)^T| + |op(B)||op(A)^T|) + |beta| |C0|)   likewise
+//	Symm   |C^ - C| <= gamma_{s+2} (|alpha| |A| |B| + |beta| |C0|)           elementwise (|B| |A| for side Right)
 //	Gemv   |y^ - y| <= gamma_{r+2} (|alpha| |op(A)| |x|      + |beta| |y0|)   elementwise, r the length of the sum
 //	Dot    |d^ - d| <= gamma_n |x|.|y|
 //	Axpy   |y^ - y| <= gamma_2 (|alpha x| + |y0|)             elementwise
@@ -53,8 +59,8 @@ const (
 )
 
 // Uplo says which triangle of a symmetric, Hermitian or triangular matrix is
-// referenced. It is type-independent, like Diag and Side, and not used by the
-// routines of this release.
+// referenced. It is type-independent, like Diag and Side, and is taken by the
+// level 3 routines Trsm, Trmm, Syrk, Syr2k and Symm.
 type Uplo byte
 
 const (

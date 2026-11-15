@@ -107,11 +107,20 @@ func gemm[T real](name string, tA, tB Transpose, m, n, k int, alpha T, a []T, ld
 	if p := check.GemmLens(byte(tA), byte(tB), m, n, k, lda, ldb, ldc, len(a), len(b), len(c), alpha != 0); p != 0 { // guard
 		return argErr(name, p)
 	}
+	gemmCore(tA, tB, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc, h)
+	return nil
+}
+
+// gemmCore is gemm after the argument tests and the quick return, which the
+// caller has done: tA and tB are upper case, the slices are long enough, m and n
+// are positive. The level 3 routines of this package (trsm.go, trmm.go, syrk.go)
+// call it on the blocks of their operands.
+func gemmCore[T real](tA, tB Transpose, m, n, k int, alpha T, a []T, lda int, b []T, ldb int, beta T, c []T, ldc int, h *hw[T]) {
 	// Nothing to multiply, or no kernel: the reference loops, which also carry
 	// the alpha = 0 and k = 0 rules.
 	if alpha == 0 || k == 0 || h.mul == nil { // guard
 		ref.Gemm(tA == NoTrans, tB == NoTrans, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)
-		return nil
+		return
 	}
 	// C := beta*C, without reading C when beta is 0 (it may hold NaN).
 	for j := 0; j < n; j++ {
@@ -128,7 +137,7 @@ func gemm[T real](name string, tA, tB Transpose, m, n, k int, alpha T, a []T, ld
 	}
 	if alpha == 1 {
 		h.mul(c, ldc, tA, tB, m, n, k, a, lda, b, ldb)
-		return nil
+		return
 	}
 	// The kernel has no alpha: form the product in a scratch matrix, then add
 	// alpha times it.
@@ -141,7 +150,6 @@ func gemm[T real](name string, tA, tB Transpose, m, n, k int, alpha T, a []T, ld
 		}
 	}
 	h.scratch.Put(&t)
-	return nil
 }
 
 // getScratch returns a zeroed slice of n elements from p, or a new one.

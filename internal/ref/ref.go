@@ -1,7 +1,9 @@
 // Package ref holds plain-Go ports of the reference BLAS 3.12 routines this
 // module ships (Reference-LAPACK/lapack, tag v3.12.0, BLAS/SRC): dgemm.f,
 // sgemm.f, dgemv.f, sgemv.f, ddot.f, sdot.f, daxpy.f, saxpy.f, dscal.f,
-// sscal.f, dnrm2.f90, snrm2.f90, dasum.f, sasum.f, idamax.f and isamax.f. The
+// sscal.f, dnrm2.f90, snrm2.f90, dasum.f, sasum.f, idamax.f and isamax.f (and,
+// in level3.go, dtrsm.f, dtrmm.f, dsyrk.f, dsyr2k.f, dsymm.f and their single
+// precision twins). The
 // double and single precision routines differ only in the element type and, for
 // nrm2, in four constants, so each is written once, generic over float32 and
 // float64.
