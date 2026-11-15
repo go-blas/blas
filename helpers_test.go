@@ -27,16 +27,21 @@ type impl[T float] struct {
 	nrm2  func(n int, x []T, incx int) (T, error)
 	asum  func(n int, x []T, incx int) (T, error)
 	iamax func(n int, x []T, incx int) (int, error)
+	trsm  func(side blas.Side, uplo blas.Uplo, tA blas.Transpose, diag blas.Diag, m, n int, alpha T, a []T, lda int, b []T, ldb int) error
+	trmm  func(side blas.Side, uplo blas.Uplo, tA blas.Transpose, diag blas.Diag, m, n int, alpha T, a []T, lda int, b []T, ldb int) error
+	syrk  func(uplo blas.Uplo, trans blas.Transpose, n, k int, alpha T, a []T, lda int, beta T, c []T, ldc int) error
+	syr2k func(uplo blas.Uplo, trans blas.Transpose, n, k int, alpha T, a []T, lda int, b []T, ldb int, beta T, c []T, ldc int) error
+	symm  func(side blas.Side, uplo blas.Uplo, m, n int, alpha T, a []T, lda int, b []T, ldb int, beta T, c []T, ldc int) error
 }
 
 var impls64 = []impl[float64]{
-	{"blas", blas.Dgemm, blas.Dgemv, blas.Ddot, blas.Daxpy, blas.Dscal, blas.Dnrm2, blas.Dasum, blas.Idamax},
-	{"netlib", netlib.Dgemm, netlib.Dgemv, netlib.Ddot, netlib.Daxpy, netlib.Dscal, netlib.Dnrm2, netlib.Dasum, netlib.Idamax},
+	{"blas", blas.Dgemm, blas.Dgemv, blas.Ddot, blas.Daxpy, blas.Dscal, blas.Dnrm2, blas.Dasum, blas.Idamax, blas.Dtrsm, blas.Dtrmm, blas.Dsyrk, blas.Dsyr2k, blas.Dsymm},
+	{"netlib", netlib.Dgemm, netlib.Dgemv, netlib.Ddot, netlib.Daxpy, netlib.Dscal, netlib.Dnrm2, netlib.Dasum, netlib.Idamax, netlib.Dtrsm, netlib.Dtrmm, netlib.Dsyrk, netlib.Dsyr2k, netlib.Dsymm},
 }
 
 var impls32 = []impl[float32]{
-	{"blas", blas.Sgemm, blas.Sgemv, blas.Sdot, blas.Saxpy, blas.Sscal, blas.Snrm2, blas.Sasum, blas.Isamax},
-	{"netlib", netlib.Sgemm, netlib.Sgemv, netlib.Sdot, netlib.Saxpy, netlib.Sscal, netlib.Snrm2, netlib.Sasum, netlib.Isamax},
+	{"blas", blas.Sgemm, blas.Sgemv, blas.Sdot, blas.Saxpy, blas.Sscal, blas.Snrm2, blas.Sasum, blas.Isamax, blas.Strsm, blas.Strmm, blas.Ssyrk, blas.Ssyr2k, blas.Ssymm},
+	{"netlib", netlib.Sgemm, netlib.Sgemv, netlib.Sdot, netlib.Saxpy, netlib.Sscal, netlib.Snrm2, netlib.Sasum, netlib.Isamax, netlib.Strsm, netlib.Strmm, netlib.Ssyrk, netlib.Ssyr2k, netlib.Ssymm},
 }
 
 // each runs a test for both element types and both implementations.

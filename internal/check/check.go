@@ -262,3 +262,203 @@ func Vec1(param, n, inc, lenX int) int {
 	}
 	return 0
 }
+
+// validSide, validUplo and validDiag report whether c is one of the flags the
+// Fortran routines take (the caller has already upper-cased it).
+func validSide(c byte) bool { return c == 'L' || c == 'R' }
+func validUplo(c byte) bool { return c == 'U' || c == 'L' }
+func validDiag(c byte) bool { return c == 'U' || c == 'N' }
+
+// Tr checks the dimension parameters of xTRSM and xTRMM(SIDE, UPLO, TRANSA, DIAG,
+// M, N, ALPHA, A, LDA, B, LDB), which have the same signature and the same tests,
+// in the reference's order.
+func Tr(side, uplo, trans, diag byte, m, n, lda, ldb int) int {
+	nrowA := n
+	if side == 'L' {
+		nrowA = m
+	}
+	switch {
+	case !validSide(side): // guard
+		return 1
+	case !validUplo(uplo): // guard
+		return 2
+	case !ValidTrans(trans): // guard
+		return 3
+	case !validDiag(diag): // guard
+		return 4
+	case m < 0: // guard
+		return 5
+	case n < 0: // guard
+		return 6
+	case lda < max(1, nrowA): // guard
+		return 9
+	case ldb < max(1, m): // guard
+		return 11
+	}
+	return 0
+}
+
+// TrLens checks the slice lengths of a TRSM or TRMM whose dimensions Tr accepted
+// and that is not a quick return. readsA is false when alpha is zero, in which
+// case A is never read and may be empty.
+func TrLens(side byte, m, n, lda, ldb, lenA, lenB int, readsA bool) int {
+	nrowA := n
+	if side == 'L' {
+		nrowA = m
+	}
+	if readsA {
+		nA, okA := Need(nrowA, nrowA, lda)
+		if short(lenA, nA, okA) { // guard
+			return 8
+		}
+	}
+	nB, okB := Need(m, n, ldb)
+	if short(lenB, nB, okB) { // guard
+		return 10
+	}
+	return 0
+}
+
+// Syrk checks the dimension parameters of xSYRK(UPLO, TRANS, N, K, ALPHA, A, LDA,
+// BETA, C, LDC), in the reference's order.
+func Syrk(uplo, trans byte, n, k, lda, ldc int) int {
+	nrowA := k
+	if trans == NoTrans {
+		nrowA = n
+	}
+	switch {
+	case !validUplo(uplo): // guard
+		return 1
+	case !ValidTrans(trans): // guard
+		return 2
+	case n < 0: // guard
+		return 3
+	case k < 0: // guard
+		return 4
+	case lda < max(1, nrowA): // guard
+		return 7
+	case ldc < max(1, n): // guard
+		return 10
+	}
+	return 0
+}
+
+// SyrkLens checks the slice lengths of a SYRK whose dimensions Syrk accepted and
+// that is not a quick return. readsA is false when alpha is zero.
+func SyrkLens(trans byte, n, k, lda, ldc, lenA, lenC int, readsA bool) int {
+	rowsA, colsA := n, k
+	if trans != NoTrans {
+		rowsA, colsA = k, n
+	}
+	if readsA {
+		nA, okA := Need(rowsA, colsA, lda)
+		if short(lenA, nA, okA) { // guard
+			return 6
+		}
+	}
+	nC, okC := Need(n, n, ldc)
+	if short(lenC, nC, okC) { // guard
+		return 9
+	}
+	return 0
+}
+
+// Syr2k checks the dimension parameters of xSYR2K(UPLO, TRANS, N, K, ALPHA, A,
+// LDA, B, LDB, BETA, C, LDC), in the reference's order.
+func Syr2k(uplo, trans byte, n, k, lda, ldb, ldc int) int {
+	nrowA := k
+	if trans == NoTrans {
+		nrowA = n
+	}
+	switch {
+	case !validUplo(uplo): // guard
+		return 1
+	case !ValidTrans(trans): // guard
+		return 2
+	case n < 0: // guard
+		return 3
+	case k < 0: // guard
+		return 4
+	case lda < max(1, nrowA): // guard
+		return 7
+	case ldb < max(1, nrowA): // guard
+		return 9
+	case ldc < max(1, n): // guard
+		return 12
+	}
+	return 0
+}
+
+// Syr2kLens checks the slice lengths of a SYR2K whose dimensions Syr2k accepted
+// and that is not a quick return. readsAB is false when alpha is zero.
+func Syr2kLens(trans byte, n, k, lda, ldb, ldc, lenA, lenB, lenC int, readsAB bool) int {
+	rows, cols := n, k
+	if trans != NoTrans {
+		rows, cols = k, n
+	}
+	if readsAB {
+		nA, okA := Need(rows, cols, lda)
+		if short(lenA, nA, okA) { // guard
+			return 6
+		}
+		nB, okB := Need(rows, cols, ldb)
+		if short(lenB, nB, okB) { // guard
+			return 8
+		}
+	}
+	nC, okC := Need(n, n, ldc)
+	if short(lenC, nC, okC) { // guard
+		return 11
+	}
+	return 0
+}
+
+// Symm checks the dimension parameters of xSYMM(SIDE, UPLO, M, N, ALPHA, A, LDA,
+// B, LDB, BETA, C, LDC), in the reference's order.
+func Symm(side, uplo byte, m, n, lda, ldb, ldc int) int {
+	nrowA := n
+	if side == 'L' {
+		nrowA = m
+	}
+	switch {
+	case !validSide(side): // guard
+		return 1
+	case !validUplo(uplo): // guard
+		return 2
+	case m < 0: // guard
+		return 3
+	case n < 0: // guard
+		return 4
+	case lda < max(1, nrowA): // guard
+		return 7
+	case ldb < max(1, m): // guard
+		return 9
+	case ldc < max(1, m): // guard
+		return 12
+	}
+	return 0
+}
+
+// SymmLens checks the slice lengths of a SYMM whose dimensions Symm accepted and
+// that is not a quick return. readsAB is false when alpha is zero.
+func SymmLens(side byte, m, n, lda, ldb, ldc, lenA, lenB, lenC int, readsAB bool) int {
+	nrowA := n
+	if side == 'L' {
+		nrowA = m
+	}
+	if readsAB {
+		nA, okA := Need(nrowA, nrowA, lda)
+		if short(lenA, nA, okA) { // guard
+			return 6
+		}
+		nB, okB := Need(m, n, ldb)
+		if short(lenB, nB, okB) { // guard
+			return 8
+		}
+	}
+	nC, okC := Need(m, n, ldc)
+	if short(lenC, nC, okC) { // guard
+		return 11
+	}
+	return 0
+}

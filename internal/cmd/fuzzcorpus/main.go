@@ -183,6 +183,95 @@ func main() {
 		g(5, 1, 0, 4)  // tiny
 		g(39, 1, 0, 0)
 	}
+	for _, p := range []struct{ target, kind string }{{"FuzzDtrsm", "float64"}, {"FuzzStrsm", "float32"}, {"FuzzDtrmm", "float64"}, {"FuzzStrmm", "float32"}} {
+		// side, uplo, tA, diag, m, n, ldaD, ldbD, dA, dB, alpha, flavor, seed, blk
+		g := func(side, uplo, tA, diag byte, m, n, la, lb, dA, dB int, al float64, flavor, blk int) {
+			add(p.target, b(side), b(uplo), b(tA), b(diag), i8(m), i8(n), i8(la), i8(lb), i8(dA), i8(dB), f(p.kind, al), u8(flavor), u64(m*100+n*10+int(side)), u8(blk))
+		}
+		for _, side := range []byte{'L', 'R'} {
+			g(side, 'U', 'N', 'N', 7, 5, 0, 0, 0, 0, 1, 0, 0)
+			g(side, 'L', 'T', 'N', 7, 5, 2, 1, 0, 0, 2.5, 0, 0)
+			g(side, 'U', 'T', 'U', 13, 9, 0, 3, 0, 0, -1, 0, 4)
+			g(side, 'L', 'C', 'U', 9, 13, 3, 0, 0, 0, 0.75, 0, 7)
+			g(side, 'u', 'n', 'u', 11, 6, 0, 0, 0, 0, 1.5, 0, 3) // lower case
+			g(side, 'L', 'N', 'N', 39, 39, 0, 0, 0, 0, 1, 0, 5)  // several blocks
+			g(side, 'U', 'N', 'N', 5, 5, 0, 0, 0, 0, 0, 0, 0)    // alpha = 0
+			g(side, 'U', 'N', 'N', 5, 5, 0, 0, -2, 0, 0, 0, 0)   // alpha = 0, A short: not an error
+			g(side, 'U', 'N', 'N', 5, 5, 0, 0, 0, 0, 1, 1, 2)    // NaN planted
+			g(side, 'L', 'T', 'N', 5, 5, 0, 0, 0, 0, 1, 2, 2)    // infinity planted
+			g(side, 'U', 'N', 'N', 0, 5, 0, 0, 0, 0, 1, 0, 0)    // m = 0
+			g(side, 'U', 'N', 'N', 5, 0, 0, 0, 0, 0, 1, 0, 0)    // n = 0
+		}
+		g('X', 'U', 'N', 'N', 3, 3, 0, 0, 0, 0, 1, 0, 0)  // param 1
+		g('L', 'X', 'N', 'N', 3, 3, 0, 0, 0, 0, 1, 0, 0)  // param 2
+		g('L', 'U', 'X', 'N', 3, 3, 0, 0, 0, 0, 1, 0, 0)  // param 3
+		g('L', 'U', 'N', 'X', 3, 3, 0, 0, 0, 0, 1, 0, 0)  // param 4
+		g('L', 'U', 'N', 'N', -1, 3, 0, 0, 0, 0, 1, 0, 0) // param 5
+		g('L', 'U', 'N', 'N', 3, -1, 0, 0, 0, 0, 1, 0, 0) // param 6
+		g('L', 'U', 'N', 'N', 3, 3, -1, 0, 0, 0, 1, 0, 0) // param 9
+		g('L', 'U', 'N', 'N', 3, 3, 0, -1, 0, 0, 1, 0, 0) // param 11
+		g('L', 'U', 'N', 'N', 6, 6, 0, 0, -1, 0, 1, 0, 0) // A one short
+		g('R', 'L', 'T', 'N', 6, 6, 0, 0, 0, -1, 1, 0, 0) // B one short
+	}
+	for _, p := range []struct{ target, kind string }{{"FuzzDsyrk", "float64"}, {"FuzzSsyrk", "float32"}, {"FuzzDsyr2k", "float64"}, {"FuzzSsyr2k", "float32"}} {
+		// uplo, trans, n, k, ldaD, ldbD, ldcD, dA, dB, dC, alpha, beta, flavor, seed, blk
+		g := func(uplo, tr byte, n, k, la, lb, lc, dA, dB, dC int, al, be float64, flavor, blk int) {
+			add(p.target, b(uplo), b(tr), i8(n), i8(k), i8(la), i8(lb), i8(lc), i8(dA), i8(dB), i8(dC), f(p.kind, al), f(p.kind, be), u8(flavor), u64(n*100+k*10+int(uplo)), u8(blk))
+		}
+		for _, uplo := range []byte{'U', 'L'} {
+			g(uplo, 'N', 7, 5, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0)
+			g(uplo, 'T', 7, 5, 2, 1, 3, 0, 0, 0, 2.5, 1, 0, 4)
+			g(uplo, 'C', 13, 9, 0, 3, 0, 0, 0, 0, -1, 0.5, 0, 7)
+			g(uplo+32, 'n', 9, 13, 3, 0, 0, 0, 0, 0, 0.75, 2, 0, 3) // lower case
+			g(uplo, 'N', 39, 39, 0, 0, 0, 0, 0, 0, 1, 1, 0, 5)      // several blocks
+			g(uplo, 'T', 5, 5, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0)        // alpha = 0
+			g(uplo, 'N', 5, 5, 0, 0, 0, -2, -2, 0, 0, 3, 0, 0)      // alpha = 0, A and B short: not an error
+			g(uplo, 'N', 5, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0)        // k = 0, C := 0
+			g(uplo, 'N', 5, 5, 0, 0, 0, 0, 0, 0, 1, 0, 1, 2)        // NaN planted
+			g(uplo, 'T', 5, 5, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2)        // infinity planted
+			g(uplo, 'N', 0, 5, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0)        // n = 0
+		}
+		g('X', 'N', 3, 3, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0)  // param 1
+		g('U', 'X', 3, 3, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0)  // param 2
+		g('U', 'N', -1, 3, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0) // param 3
+		g('U', 'N', 3, -1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0) // param 4
+		g('U', 'N', 3, 3, -1, 0, 0, 0, 0, 0, 1, 1, 0, 0) // param 7
+		g('U', 'N', 3, 3, 0, -1, 0, 0, 0, 0, 1, 1, 0, 0) // param 9 (syr2k)
+		g('U', 'N', 3, 3, 0, 0, -1, 0, 0, 0, 1, 1, 0, 0) // ldc
+		g('U', 'N', 6, 6, 0, 0, 0, -1, 0, 0, 1, 1, 0, 0) // A one short
+		g('U', 'T', 6, 6, 0, 0, 0, 0, -1, 0, 1, 1, 0, 0) // B one short
+		g('L', 'N', 6, 6, 0, 0, 0, 0, 0, -1, 1, 1, 0, 0) // C one short
+	}
+	for _, p := range []struct{ target, kind string }{{"FuzzDsymm", "float64"}, {"FuzzSsymm", "float32"}} {
+		// side, uplo, m, n, ldaD, ldbD, ldcD, dA, dB, dC, alpha, beta, flavor, seed, blk
+		g := func(side, uplo byte, m, n, la, lb, lc, dA, dB, dC int, al, be float64, flavor, blk int) {
+			add(p.target, b(side), b(uplo), i8(m), i8(n), i8(la), i8(lb), i8(lc), i8(dA), i8(dB), i8(dC), f(p.kind, al), f(p.kind, be), u8(flavor), u64(m*100+n*10+int(side)), u8(blk))
+		}
+		for _, side := range []byte{'L', 'R'} {
+			for _, uplo := range []byte{'U', 'L'} {
+				g(side, uplo, 7, 5, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0)
+				g(side, uplo, 7, 5, 2, 1, 3, 0, 0, 0, 2.5, 1, 0, 0)
+				g(side, uplo, 13, 9, 0, 3, 0, 0, 0, 0, -1, 0.5, 0, 0)
+				g(side+32, uplo+32, 9, 13, 3, 0, 0, 0, 0, 0, 0.75, 2, 0, 0) // lower case
+				g(side, uplo, 5, 5, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0)           // alpha = 0
+				g(side, uplo, 5, 5, 0, 0, 0, -2, -2, 0, 0, 3, 0, 0)         // alpha = 0, A and B short: not an error
+				g(side, uplo, 5, 5, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0)           // NaN planted
+				g(side, uplo, 5, 5, 0, 0, 0, 0, 0, 0, 1, 1, 2, 0)           // infinity planted
+				g(side, uplo, 39, 39, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0)         // parallel kernel path
+				g(side, uplo, 0, 5, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0)           // m = 0
+			}
+		}
+		g('X', 'U', 3, 3, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0)  // param 1
+		g('L', 'X', 3, 3, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0)  // param 2
+		g('L', 'U', -1, 3, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0) // param 3
+		g('L', 'U', 3, -1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0) // param 4
+		g('L', 'U', 3, 3, -1, 0, 0, 0, 0, 0, 1, 1, 0, 0) // param 7
+		g('L', 'U', 3, 3, 0, -1, 0, 0, 0, 0, 1, 1, 0, 0) // param 9
+		g('L', 'U', 3, 3, 0, 0, -1, 0, 0, 0, 1, 1, 0, 0) // param 12
+		g('L', 'U', 6, 6, 0, 0, 0, -1, 0, 0, 1, 1, 0, 0) // A one short
+		g('R', 'L', 6, 6, 0, 0, 0, 0, -1, 0, 1, 1, 0, 0) // B one short
+		g('L', 'L', 6, 6, 0, 0, 0, 0, 0, -1, 1, 1, 0, 0) // C one short
+	}
 	for target, entries := range out {
 		dir := filepath.Join(*root, "testdata", "fuzz", target)
 		if err := os.MkdirAll(dir, 0o755); err != nil {

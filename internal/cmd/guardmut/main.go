@@ -36,11 +36,16 @@ type guard struct {
 
 func main() {
 	root := flag.String("root", ".", "the repository root")
+	only := flag.String("only", "", "mutate only the guards of files whose path contains one of these comma-separated strings (default: all)")
+	flag.StringVar(&testPkgs, "pkgs", "./...", "the packages to run the tests of, for each mutant")
 	flag.Parse()
 	guards, err := find(*root)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "guardmut:", err)
 		os.Exit(2)
+	}
+	if *only != "" {
+		guards = filter(guards, strings.Split(*only, ","))
 	}
 	if len(guards) == 0 {
 		fmt.Fprintln(os.Stderr, "guardmut: no guard found")
@@ -62,6 +67,23 @@ func main() {
 	if bad > 0 {
 		os.Exit(1)
 	}
+}
+
+// testPkgs is the package pattern the tests of each mutant run on.
+var testPkgs = "./..."
+
+// filter keeps the guards of the files whose path contains one of subs.
+func filter(gs []guard, subs []string) []guard {
+	var out []guard
+	for _, g := range gs {
+		for _, s := range subs {
+			if strings.Contains(g.file, s) {
+				out = append(out, g)
+				break
+			}
+		}
+	}
+	return out
 }
 
 // find lists the guard lines of the non-test sources of the root module.
@@ -145,7 +167,7 @@ func mutate(root string, g guard) (verdict, text string) {
 // run runs the tests of the module at root, fuzz targets excluded, and reports
 // the output and whether they passed.
 func run(root string) (string, bool) {
-	cmd := exec.Command("go", "test", "-count=1", "-skip", "^Fuzz", "./...")
+	cmd := exec.Command("go", "test", "-count=1", "-skip", "^Fuzz", testPkgs)
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	return string(out), err == nil

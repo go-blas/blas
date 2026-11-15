@@ -1,7 +1,9 @@
 // Package netlib is the exact option: plain-Go ports of the reference BLAS 3.12
 // routines (Reference-LAPACK/lapack, tag v3.12.0, BLAS/SRC: dgemm.f, sgemm.f,
 // dgemv.f, sgemv.f, ddot.f, sdot.f, daxpy.f, saxpy.f, dscal.f, sscal.f,
-// dnrm2.f90, snrm2.f90, dasum.f, sasum.f, idamax.f, isamax.f), in the
+// dnrm2.f90, snrm2.f90, dasum.f, sasum.f, idamax.f, isamax.f, and the level 3
+// dtrsm.f, dtrmm.f, dsyrk.f, dsyr2k.f, dsymm.f with their single precision
+// twins), in the
 // reference's loop order and without fused multiply-add. The results are the
 // same on every architecture, and the same as the Fortran reference compiled
 // without FMA contraction; they are the equality oracle the tests of package
