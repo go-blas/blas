@@ -160,6 +160,7 @@ func flagsT[T float](t *testing.T, im impl[T]) {
 // lapack and netlib agree on every argument error and on INFO, over a grid that
 // includes invalid dimensions and short slices.
 func TestAgreeOnArguments(t *testing.T) {
+	defer noPanic(t)
 	for _, m := range []int{-1, 0, 1, 4} {
 		for _, n := range []int{-1, 0, 1, 4} {
 			for _, lda := range []int{0, 1, 4} {

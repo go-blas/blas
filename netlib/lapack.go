@@ -31,7 +31,10 @@ func getrf[T ref.Float](name string, nb, m, n int, a []T, lda int, ipiv []int) (
 	if p := check.Getrf(m, n, lda); p != 0 { // guard
 		return -p, argErr(name, p)
 	}
-	if m == 0 || n == 0 { // guard
+	// Not a guard line: without this return, ref.Getrf2 on an empty matrix
+	// recurses without end, and a mutant that dies of a stack overflow is found
+	// by the runtime, not by an assertion, so guardmut cannot classify it.
+	if m == 0 || n == 0 {
 		return 0, nil
 	}
 	if p := check.GetrfLens(m, n, lda, len(a), len(ipiv)); p != 0 { // guard
@@ -87,7 +90,9 @@ func potrf[T ref.Float](name string, nb int, uplo blas.Uplo, n int, a []T, lda i
 	if p := check.Potrf(byte(uplo), n, lda); p != 0 { // guard
 		return -p, argErr(name, p)
 	}
-	if n == 0 { // guard
+	// Not a guard line, for the reason given at getrf: ref.Potrf2 recurses
+	// without end on n = 0.
+	if n == 0 {
 		return 0, nil
 	}
 	if p := check.PotrfLens(n, lda, len(a)); p != 0 { // guard

@@ -121,7 +121,10 @@ func getrf[T real](name string, o *ops[T], m, n int, a []T, lda int, ipiv []int)
 	if p := check.Getrf(m, n, lda); p != 0 { // guard
 		return -p, argErr(name, p)
 	}
-	if m == 0 || n == 0 { // guard
+	// Not a guard line: with m = 0 or n = 0 the recursion below does nothing and
+	// returns INFO 0, so disabling this return changes no behaviour, and a mutant
+	// that cannot be told from the original cannot be killed.
+	if m == 0 || n == 0 {
 		return 0, nil
 	}
 	if p := check.GetrfLens(m, n, lda, len(a), len(ipiv)); p != 0 { // guard
@@ -186,7 +189,8 @@ func potrf[T real](name string, o *ops[T], uplo blas.Uplo, n int, a []T, lda int
 	if p := check.Potrf(byte(uplo), n, lda); p != 0 { // guard
 		return -p, argErr(name, p)
 	}
-	if n == 0 { // guard
+	// Not a guard line, for the reason given at getrf: n = 0 recurses on nothing.
+	if n == 0 {
 		return 0, nil
 	}
 	if p := check.PotrfLens(n, lda, len(a)); p != 0 { // guard
