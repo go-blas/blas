@@ -158,7 +158,11 @@ func flagsT[T float](t *testing.T, im impl[T]) {
 }
 
 // lapack and netlib agree on every argument error and on INFO, over a grid that
-// includes invalid dimensions and short slices.
+// includes invalid dimensions and short slices. Both call the same internal/check,
+// so this compares two callers of one checker and cannot see a wrong number in it:
+// TestArgErrors, with its table of numbers from the reference signatures, is the
+// independent check, and this test the one that the wrappers order their checks
+// and quick returns alike.
 func TestAgreeOnArguments(t *testing.T) {
 	defer noPanic(t)
 	for _, m := range []int{-1, 0, 1, 4} {

@@ -308,7 +308,9 @@ returns.
     *Bounds*, asserted against the 256-bit oracle (`oracle.Prec`) with `u` the unit
     roundoff, `gamma_k = ku/(1-ku)`, `r = min(m, n)`, `L^`, `U^` the computed
     factors, `C^` the computed Cholesky factor, `X^` the computed solution, all
-    elementwise:
+    elementwise, and `P` the operator of the row interchanges of `ipiv` applied in
+    order as `DLASWP` does (`P X` is `X` with them applied, so `P A = L U`; it is
+    the transpose of the permutation matrix of LAPACK's `A = P L U`):
     * getrf: `|P A - L^ U^| <= gamma_{3r+2} |L^||U^|`, for `INFO > 0` too (the
       factorization as completed);
     * getrs: `|P B - L^ U^ X^| <= gamma_{2n+8} |L^||U^||X^|`, and for Trans
@@ -371,15 +373,23 @@ returns.
     blocks, wide and tall); zero columns (exact `INFO`), a negative, zero or NaN
     diagonal for potrf (exact `INFO` in every block position); a subnormal pivot
     (division, as the reference); NaN and Inf in the data (no panic, no error, a
-    leading NaN is the pivot as in `IDAMAX`); every parameter number, every short
+    leading NaN is the pivot as in `IDAMAX`; the factors of `lapack` and `netlib`
+    are of the same class at every element, in several positions of the bad value
+    and for every panel width; a zero pivot skips the interchange and the scaling
+    but not the update, as `DGETF2`, so that `0 * Inf` is NaN in both: review of
+    this PR found `lapack` skipping the update, and the test now fails without it); every parameter number, every short
     slice, the quick returns; `lapack` against `netlib` on `INFO` and `*ArgError`
     over a grid of arguments; a ref-level test of `Laswp` (increments 1, -1, 0,
     columns on both sides of the 32-column unroll) and of `Getrf`/`Potrf` at block
     sizes other than 64. Eight fuzz targets (`FuzzDgetrf` ... `FuzzSpotrs`), with the
     committed corpus `lapack/testdata/fuzz` (written by `fuzzcorpus`, run by
-    `fuzzall`), compare `lapack` with `netlib` (same `*ArgError`, same `INFO`,
+    `fuzzall`), compare `lapack` with `netlib` (same `*ArgError` and `INFO`,
     outputs untouched on an error or a quick return) and, on finite data of
-    moderate magnitude, both with the bound; the fuzzer found two bugs of the
+    moderate magnitude, both with the bound; INFO is compared for equality on
+    finite data only where rounding cannot change it (potrf, whose matrix is
+    strictly diagonally dominant; getrf only as "a zero pivot at or before the
+    exactly zero column", since a pivot that cancels to zero in one order of
+    evaluation and not in the other is legitimate); the fuzzer found two bugs of the
     harness itself, kept in the corpus. Whole module block coverage 100%
     (`covblocks`); `guardmut` on the LAPACK files, 47 guards, none survives.
 

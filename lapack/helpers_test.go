@@ -341,8 +341,12 @@ func getrsBound[T float](t *testing.T, what string, trans byte, a []T, ipiv []in
 		bound(t, what+": P B - L U X", sub(pb, mul(l, mul(u, xb))), mul(l.abs(), mul(u.abs(), xb.abs())), g, nil)
 		return
 	}
-	// A^T = U^T L^T P^T: with w = P^T x (the forward interchanges applied to x),
-	// U^T L^T w = b.
+	// P is the operator of the forward interchanges (P X: the interchanges of ipiv
+	// applied in order to the rows of X, swapRows with forward true; DLASWP with
+	// incx = 1), so that P A = L U, and A^T = U^T L^T P (LAPACK's permutation
+	// matrix is P^T, A = P^T L U). Then A^T x = b is U^T L^T (P x) = b: with
+	// w = P x, U^T L^T w = b, and getrs recovers x = P^-1 w by applying the
+	// interchanges in reverse. The code below forms z = P x.
 	z := swapRows(xb, ipiv, n, true)
 	bound(t, what+": B - U^T L^T P X", sub(b, mul(u.T(), mul(l.T(), z))), mul(u.T().abs(), mul(l.T().abs(), z.abs())), g, nil)
 }

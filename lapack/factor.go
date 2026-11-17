@@ -83,8 +83,8 @@ func getrfRec[T real](o *ops[T], m, n int, a []T, lda int, ipiv []int) (info int
 // is applied to the whole row, the column is scaled by the reciprocal of the
 // pivot (by division when the pivot is below the smallest normal number, as the
 // reference), and the trailing columns get the rank-1 update. A zero pivot is
-// INFO (the first one), nothing else is done for the column, and the
-// factorization goes on.
+// INFO (the first one); the interchange and the scaling are skipped for that
+// column, the update is not (DGETF2), and the factorization goes on.
 func getf2[T real](m, n int, a []T, lda int, ipiv []int) (info int) {
 	sfmin := ref.SafeMin[T]()
 	for j := 0; j < min(m, n); j++ {
@@ -92,26 +92,30 @@ func getf2[T real](m, n int, a []T, lda int, ipiv []int) (info int) {
 		p := j + ref.Iamax(m-j, col[j:], 1) - 1
 		ipiv[j] = p + 1
 		d := col[p]
+		below := col[j+1:]
 		if d == 0 {
+			// As DGETF2: a zero pivot is INFO (the first), the interchange and the
+			// scaling are skipped, and the rank-1 update still runs, so that an
+			// infinity in the row of U meets the zero multipliers (0*Inf is NaN)
+			// exactly as in the reference.
 			if info == 0 {
 				info = j + 1
 			}
-			continue
-		}
-		if p != j {
-			for c := 0; c < n; c++ {
-				a[j+c*lda], a[p+c*lda] = a[p+c*lda], a[j+c*lda]
-			}
-		}
-		below := col[j+1:]
-		if math.Abs(float64(d)) >= float64(sfmin) {
-			r := 1 / d
-			for i := range below {
-				below[i] *= r
-			}
 		} else {
-			for i := range below {
-				below[i] /= d
+			if p != j {
+				for c := 0; c < n; c++ {
+					a[j+c*lda], a[p+c*lda] = a[p+c*lda], a[j+c*lda]
+				}
+			}
+			if math.Abs(float64(d)) >= float64(sfmin) {
+				r := 1 / d
+				for i := range below {
+					below[i] *= r
+				}
+			} else {
+				for i := range below {
+					below[i] /= d
+				}
 			}
 		}
 		for c := j + 1; c < n; c++ {

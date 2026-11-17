@@ -86,10 +86,14 @@ func fuzzGetrf[T float](t *testing.T, m8, n8, ldaD, dA, dI, zc int8, flavor uint
 	lda := max(1, m) + int(ldaD)%4
 	rng := newRNG(seed)
 	full := general[T](rng, max(m, 0), max(n, 0), max(lda, 1))
+	zeroCol := -1                              // the index of a column made exactly zero, if it holds a pivot
 	if n > 0 && m > 0 && zc >= 0 && lda >= m { // a zero column: a singular matrix
 		c := int(zc) % n
 		for i := 0; i < m; i++ {
 			full[i+c*lda] = 0
+		}
+		if c < min(m, n) {
+			zeroCol = c
 		}
 	}
 	plant(full, seed, flavor)
@@ -130,8 +134,19 @@ func fuzzGetrf[T float](t *testing.T, m8, n8, ldaD, dA, dI, zc int8, flavor uint
 	if flavor%5 != 0 || !modest(a0) {
 		return // the bounds are stated on finite data of moderate magnitude
 	}
-	if infos[0] != infos[1] {
-		t.Fatalf("info %d (lapack), %d (netlib) on finite data", infos[0], infos[1])
+	// INFO is not compared for equality on finite data: a pivot that cancels to
+	// exactly zero in one order of evaluation (the recursion of lapack, the blocks
+	// of netlib, FMA) and not in the other is legitimate, and the first zero
+	// pivot is then not the same. What is asserted is what rounding cannot
+	// change: a column made exactly zero (before its pivot, so that every update
+	// of it is exact) is a zero pivot at that column or before, in both. The bound
+	// below holds for the factorization as completed, whatever INFO says.
+	if zeroCol >= 0 {
+		for i := range infos {
+			if infos[i] < 1 || infos[i] > zeroCol+1 {
+				t.Fatalf("%s: info %d with column %d exactly zero, want 1..%d", impls[i].name, infos[i], zeroCol, zeroCol+1)
+			}
+		}
 	}
 	for i := range as {
 		if !modest(as[i]) {
@@ -181,7 +196,12 @@ func fuzzPotrf[T float](t *testing.T, up bool, n8, ldaD, dA, bad int8, flavor ui
 	if flavor%5 != 0 {
 		return
 	}
-	// Finite data: the same INFO, and the leading block before it is a factor.
+	// Finite data: the same INFO, and the leading block before it is a factor. The
+	// equality is safe here, unlike getrf's: the matrix is strictly diagonally
+	// dominant with a diagonal of at least n+1 against off-diagonals below 1, so no
+	// leading minor is near zero, and the only failure there can be is the
+	// diagonal element made -1, whose minor is negative by a margin rounding
+	// cannot close.
 	if infos[0] != infos[1] {
 		t.Fatalf("info %d (lapack), %d (netlib)", infos[0], infos[1])
 	}

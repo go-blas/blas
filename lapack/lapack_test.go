@@ -158,26 +158,86 @@ func TestGetrfNaNInf(t *testing.T) {
 	each(t, nanInfT[float64], nanInfT[float32])
 }
 
-// NaN and Inf in the data travel without a panic and without an error; the
-// pivot search keeps a leading NaN, as IDAMAX.
+// refOf is the netlib implementation of the same element type: the reference
+// the non-finite values must travel like.
+func refOf[T float]() impl[T] {
+	var z T
+	if _, ok := any(z).(float32); ok {
+		return any(impls32[1]).(impl[T])
+	}
+	return any(impls64[1]).(impl[T])
+}
+
+// classEq reports whether two values are of the same class: NaN with NaN, an
+// infinity with the infinity of the same sign, a finite value with a finite one.
+func classEq[T float](a, b T) bool {
+	x, y := float64(a), float64(b)
+	switch {
+	case math.IsNaN(x) || math.IsNaN(y):
+		return math.IsNaN(x) && math.IsNaN(y)
+	case math.IsInf(x, 0) || math.IsInf(y, 0):
+		return x == y
+	}
+	return true
+}
+
+// NaN and Inf in the data travel as in the reference: the factors of lapack
+// and netlib are of the same class at every element and the pivots are the
+// same, whatever the panel width; and no panic, no error. The pivot search keeps
+// a leading NaN, as IDAMAX.
 func nanInfT[T float](t *testing.T, im impl[T]) {
 	inf := T(math.Inf(1))
+	nl := refOf[T]()
 	for _, l := range leaves(im.name) {
 		setLeaf(t, l)
 		for _, bad := range []T{nan[T](), inf, -inf} {
 			for _, n := range []int{3, 20} {
-				rng := newRNG(uint64(n))
-				a := general[T](rng, n, n, n)
-				a[n/2+(n/2)*n] = bad
-				ipiv := make([]int, n)
-				if _, err := im.getrf(n, n, a, n, ipiv); err != nil {
-					t.Fatal(err)
-				}
-				if !math.IsNaN(float64(a[n-1+(n-1)*n])) && !math.IsInf(float64(a[n-1+(n-1)*n]), 0) && n == 3 {
-					// the last element depends on the bad one through the trailing update
-					t.Logf("leaf %d: %v did not reach the last element", l, bad)
+				// Planted at the middle of the diagonal, in the first row, in the
+				// last column, and in a matrix whose first column is zero (the
+				// infinity then meets the zero multipliers of the update).
+				for variant := 0; variant < 4; variant++ {
+					a := general[T](newRNG(uint64(n)), n, n, n)
+					switch variant {
+					case 0:
+						a[n/2+(n/2)*n] = bad
+					case 1:
+						a[(n-1)*n] = bad
+					case 2:
+						a[n-1+(n-1)*n] = bad
+					case 3:
+						for i := 0; i < n; i++ {
+							a[i] = 0
+						}
+						a[(n-1)*n] = bad
+					}
+					want, got := clone(a), clone(a)
+					wp, gp := make([]int, n), make([]int, n)
+					if _, err := nl.getrf(n, n, want, n, wp); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := im.getrf(n, n, got, n, gp); err != nil {
+						t.Fatal(err)
+					}
+					for i := range want {
+						if !classEq(got[i], want[i]) {
+							t.Fatalf("leaf %d n %d variant %d bad %v: element %d is %v, netlib %v", l, n, variant, bad, i, got[i], want[i])
+						}
+					}
+					for i := range wp {
+						if gp[i] != wp[i] {
+							t.Fatalf("leaf %d n %d variant %d bad %v: pivot %d is %d, netlib %d", l, n, variant, bad, i, gp[i], wp[i])
+						}
+					}
 				}
 			}
+		}
+		// A zero pivot column over an infinity: DGETF2 and DGETRF2 still run the
+		// update, and 0*Inf is NaN at U(2,2), in every implementation and panel width.
+		z := []T{0, 0, inf, 1}
+		zp := make([]int, 2)
+		info, err := im.getrf(2, 2, z, 2, zp)
+		if err != nil || info != 1 || !math.IsNaN(float64(z[3])) || !math.IsInf(float64(z[2]), 1) {
+			t.Fatalf("leaf %d: info %d, err %v, factors %v: want info 1 and U(2,2) NaN", l, info, err, z)
 		}
 		// A NaN first in the column is the pivot: the interchange is skipped.
 		a := []T{nan[T](), 5, 7, 1}
@@ -272,10 +332,27 @@ func TestPotrfInf(t *testing.T) {
 func potrfInfT[T float](t *testing.T, im impl[T]) {
 	for _, l := range leaves(im.name) {
 		setLeaf(t, l)
-		a := spd[T](newRNG(1), 20, 20, true)
-		a[0] = T(math.Inf(1))
-		if _, err := im.potrf(blas.Upper, 20, a, 20); err != nil {
-			t.Fatal(err)
+		// An infinite diagonal element is positive: the factorization goes on
+		// (the row below it divides to zero), INFO 0, and the factors are of the
+		// same class as netlib's.
+		for _, up := range []bool{true, false} {
+			uplo := blas.Lower
+			if up {
+				uplo = blas.Upper
+			}
+			a := spd[T](newRNG(1), 20, 20, up)
+			a[0] = T(math.Inf(1))
+			want := clone(a)
+			winfo, werr := refOf[T]().potrf(uplo, 20, want, 20)
+			info, err := im.potrf(uplo, 20, a, 20)
+			if err != nil || werr != nil || info != 0 || winfo != 0 {
+				t.Fatalf("leaf %d up %v: info %d, err %v (netlib %d, %v), want 0", l, up, info, err, winfo, werr)
+			}
+			for i := range a {
+				if !classEq(a[i], want[i]) {
+					t.Fatalf("leaf %d up %v: element %d is %v, netlib %v", l, up, i, a[i], want[i])
+				}
+			}
 		}
 	}
 }

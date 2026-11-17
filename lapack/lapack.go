@@ -41,7 +41,10 @@
 // reference routines for that, in the reference's loop order, without FMA). With
 // u the unit roundoff, gamma_k = k*u/(1-k*u), |.| elementwise, L^ and U^ the
 // computed factors (L^ unit lower trapezoidal m x r, U^ upper trapezoidal r x n,
-// r = min(m, n)), C^ the computed Cholesky factor and X^ the computed solution:
+// r = min(m, n)), C^ the computed Cholesky factor and X^ the computed solution,
+// and P the operator of the row interchanges of ipiv, applied in order as DLASWP
+// does (P X is X with them applied; so P A = L U, which is LAPACK's A = P_L L U
+// with P_L the permutation matrix, P = P_L^T):
 //
 //	Getrf  |P A - L^ U^|     <= gamma_{3r+2} |L^| |U^|
 //	Getrs  |P B - L^ U^ X^|  <= gamma_{2n+8} |L^| |U^| |X^|     (NoTrans; Trans: |B - U^T L^T P X^| <= gamma_{2n+8} |U^T| |L^T| |P X^|)
