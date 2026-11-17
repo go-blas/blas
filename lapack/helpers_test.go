@@ -111,7 +111,7 @@ func general[T float](rng *rand.Rand, rows, cols, ld int) []T {
 	for p := range v {
 		v[p] = sentinel
 	}
-	for j := 0; j < cols; j++ {
+	for j := 0; j < cols && rows > 0; j++ {
 		copy(v[j*ld:j*ld+rows], oracle.Fill[T](rng, rows))
 	}
 	return v
