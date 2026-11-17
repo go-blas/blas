@@ -11,7 +11,8 @@
 // 3 routines Sgemm/Dgemm, Strsm/Dtrsm, Strmm/Dtrmm, Ssyrk/Dsyrk, Ssyr2k/Dsyr2k
 // and Ssymm/Dsymm, Sgemv, Dgemv and the level 1 routines Sdot/Ddot, Saxpy/Daxpy,
 // Sscal/Dscal, Snrm2/Dnrm2, Sasum/Dasum and Isamax/Idamax. Complex routines
-// (Cgemm, Zgemm, Zdotc, ...) and LAPACK follow, under the same naming
+// (Cgemm, Zgemm, Zdotc, ...) and the rest of LAPACK follow (the LU and Cholesky
+// factorizations and solves are in package lapack, unreleased), under the same naming
 // convention, with complex64 and complex128 slices; nothing here will have to
 // change for them. ConjTrans is in Transpose from the start: for real types it
 // means Trans, as in netlib.

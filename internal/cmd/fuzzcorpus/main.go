@@ -272,8 +272,116 @@ func main() {
 		g('R', 'L', 6, 6, 0, 0, 0, 0, -1, 0, 1, 1, 0, 0) // B one short
 		g('L', 'L', 6, 6, 0, 0, 0, 0, 0, -1, 1, 1, 0, 0) // C one short
 	}
+	// LAPACK: package lapack has its own testdata, and its targets compare
+	// lapack with netlib.
+	addL := func(target string, args ...v) { out["lapack:"+target] = append(out["lapack:"+target], entry(args...)) }
+	boolV := func(x bool) v { return v{"bool", fmt.Sprint(x)} }
+	for _, p := range []struct{ prefix, kind string }{{"D", "float64"}, {"S", "float32"}} {
+		// m, n, ldaD, dA, dI, zc, flavor, seed, leaf
+		g := func(m, n, la, dA, dI, zc, flavor, lf int) {
+			addL("Fuzz"+p.prefix+"getrf", i8(m), i8(n), i8(la), i8(dA), i8(dI), i8(zc), u8(flavor), u64(m*100+n*10+lf+flavor), u8(lf))
+		}
+		g(7, 5, 0, 0, 0, -1, 0, 0)
+		g(5, 7, 2, 0, 0, -1, 0, 1)
+		g(9, 9, 0, 0, 0, -1, 0, 2)
+		g(11, 11, 3, 0, 0, -1, 0, 3)
+		g(39, 39, 0, 0, 0, -1, 0, 0) // past the default panel
+		g(38, 20, 1, 0, 0, -1, 0, 5)
+		g(20, 38, 0, 0, 0, -1, 0, 7)
+		g(12, 12, 0, 0, 0, 2, 0, 1) // a zero column: INFO 3
+		g(30, 30, 0, 0, 0, 29, 0, 2)
+		g(1, 1, 0, 0, 0, 0, 0, 0)
+		g(1, 5, 0, 0, 0, -1, 0, 0)
+		g(5, 1, 0, 0, 0, -1, 0, 0)
+		g(-1, 3, 0, 0, 0, -1, 0, 0) // param 1
+		g(3, -1, 0, 0, 0, -1, 0, 0) // param 2
+		g(3, 3, -1, 0, 0, -1, 0, 0) // param 4
+		g(6, 6, 0, -1, 0, -1, 0, 0) // A one short
+		g(6, 6, 0, 0, -1, -1, 0, 0) // ipiv one short
+		g(0, 5, 0, 0, 0, -1, 0, 0)  // m = 0
+		g(5, 0, 0, 0, 0, -1, 0, 0)  // n = 0
+		g(8, 8, 0, 0, 0, -1, 1, 1)  // NaN planted
+		g(8, 8, 0, 0, 0, -1, 2, 1)  // infinity planted
+		g(8, 8, 0, 0, 0, -1, 3, 1)  // huge
+		g(8, 8, 0, 0, 0, -1, 4, 1)  // tiny
+	}
+	for _, p := range []struct{ prefix, kind string }{{"D", "float64"}, {"S", "float32"}} {
+		// up, n, ldaD, dA, bad, flavor, seed, leaf
+		g := func(up bool, n, la, dA, bad, flavor, lf int) {
+			addL("Fuzz"+p.prefix+"potrf", boolV(up), i8(n), i8(la), i8(dA), i8(bad), u8(flavor), u64(n*10+lf+flavor), u8(lf))
+		}
+		for _, up := range []bool{true, false} {
+			g(up, 7, 0, 0, 0, 0, 0)
+			g(up, 9, 2, 0, 0, 0, 1)
+			g(up, 11, 0, 0, 0, 0, 2)
+			g(up, 13, 3, 0, 0, 0, 3)
+			g(up, 39, 0, 0, 0, 0, 0)
+			g(up, 1, 0, 0, 0, 0, 0)
+			g(up, 12, 0, 0, -5, 0, 1) // diagonal 5 not positive: INFO 6
+			g(up, 30, 0, 0, -1, 0, 2)
+			g(up, 8, 0, 0, 0, 1, 1) // NaN planted
+			g(up, 8, 0, 0, 0, 2, 1) // infinity planted
+			g(up, 8, 0, 0, 0, 3, 1)
+			g(up, 8, 0, 0, 0, 4, 1)
+			g(up, 0, 0, 0, 0, 0, 0)  // n = 0
+			g(up, -1, 0, 0, 0, 0, 0) // param 2
+			g(up, 3, -1, 0, 0, 0, 0) // param 4
+			g(up, 6, 0, -1, 0, 0, 0) // A one short
+		}
+	}
+	for _, p := range []struct{ prefix, kind string }{{"D", "float64"}, {"S", "float32"}} {
+		// tr, n, nrhs, ldaD, ldbD, dA, dB, dI, pv, flavor, seed, leaf
+		g := func(tr byte, n, nrhs, la, lb, dA, dB, dI, pv, flavor, lf int) {
+			addL("Fuzz"+p.prefix+"getrs", b(tr), i8(n), i8(nrhs), i8(la), i8(lb), i8(dA), i8(dB), i8(dI), u8(pv), u8(flavor), u64(n*10+nrhs+lf), u8(lf))
+		}
+		for _, tr := range []byte{'N', 'T', 'C', 'n', 't'} {
+			g(tr, 7, 3, 0, 0, 0, 0, 0, 0, 0, 0)
+			g(tr, 9, 4, 2, 1, 0, 0, 0, 0, 0, 2)
+			g(tr, 39, 3, 0, 0, 0, 0, 0, 0, 0, 0)
+			g(tr, 5, 39, 0, 0, 0, 0, 0, 0, 0, 1)
+			g(tr, 8, 2, 0, 0, 0, 0, 0, 0, 1, 1) // NaN planted
+			g(tr, 8, 2, 0, 0, 0, 0, 0, 0, 2, 1) // infinity planted
+			g(tr, 6, 2, 0, 0, 0, 0, 0, 1, 0, 1) // a pivot 0
+			g(tr, 6, 2, 0, 0, 0, 0, 0, 2, 0, 1) // a pivot n+1
+		}
+		g('X', 3, 3, 0, 0, 0, 0, 0, 0, 0, 0)  // param 1
+		g('N', -1, 3, 0, 0, 0, 0, 0, 0, 0, 0) // param 2
+		g('N', 3, -1, 0, 0, 0, 0, 0, 0, 0, 0) // param 3
+		g('N', 3, 3, -1, 0, 0, 0, 0, 0, 0, 0) // param 5
+		g('N', 3, 3, 0, -1, 0, 0, 0, 0, 0, 0) // param 8
+		g('N', 6, 6, 0, 0, -1, 0, 0, 0, 0, 0) // A one short
+		g('T', 6, 6, 0, 0, 0, 0, -1, 0, 0, 0) // ipiv one short
+		g('N', 6, 6, 0, 0, 0, -1, 0, 0, 0, 0) // B one short
+		g('N', 0, 3, 0, 0, 0, 0, 0, 0, 0, 0)  // n = 0
+		g('N', 3, 0, 0, 0, 0, 0, 0, 0, 0, 0)  // nrhs = 0
+	}
+	for _, p := range []struct{ prefix, kind string }{{"D", "float64"}, {"S", "float32"}} {
+		// up, n, nrhs, ldaD, ldbD, dA, dB, flavor, seed, leaf
+		g := func(up bool, n, nrhs, la, lb, dA, dB, flavor, lf int) {
+			addL("Fuzz"+p.prefix+"potrs", boolV(up), i8(n), i8(nrhs), i8(la), i8(lb), i8(dA), i8(dB), u8(flavor), u64(n*10+nrhs+lf), u8(lf))
+		}
+		for _, up := range []bool{true, false} {
+			g(up, 7, 3, 0, 0, 0, 0, 0, 0)
+			g(up, 9, 4, 2, 1, 0, 0, 0, 2)
+			g(up, 39, 3, 0, 0, 0, 0, 0, 0)
+			g(up, 5, 39, 0, 0, 0, 0, 0, 1)
+			g(up, 8, 2, 0, 0, 0, 0, 1, 1)
+			g(up, 8, 2, 0, 0, 0, 0, 2, 1)
+			g(up, -1, 3, 0, 0, 0, 0, 0, 0) // param 2
+			g(up, 3, -1, 0, 0, 0, 0, 0, 0) // param 3
+			g(up, 3, 3, -1, 0, 0, 0, 0, 0) // param 5
+			g(up, 3, 3, 0, -1, 0, 0, 0, 0) // param 7
+			g(up, 6, 6, 0, 0, -1, 0, 0, 0) // A one short
+			g(up, 6, 6, 0, 0, 0, -1, 0, 0) // B one short
+			g(up, 0, 3, 0, 0, 0, 0, 0, 0)
+			g(up, 3, 0, 0, 0, 0, 0, 0, 0)
+		}
+	}
 	for target, entries := range out {
 		dir := filepath.Join(*root, "testdata", "fuzz", target)
+		if rest, ok := strings.CutPrefix(target, "lapack:"); ok {
+			dir = filepath.Join(*root, "lapack", "testdata", "fuzz", rest)
+		}
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
