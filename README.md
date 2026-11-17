@@ -16,10 +16,11 @@ err := blas.Dgemm(blas.NoTrans, blas.NoTrans, m, n, k, 1, a, lda, b, ldb, 0, c, 
 
 ## Status
 
-First release line, real routines only:
+First release line, real routines only (the LAPACK row is on `main` and not yet in a release):
 
 | Level | Routines (`S` and `D`) |
 |---|---|
+| LAPACK (package `lapack`, **unreleased**) | `Sgetrf`/`Dgetrf`, `Sgetrs`/`Dgetrs`, `Spotrf`/`Dpotrf`, `Spotrs`/`Dpotrs`: LU with partial pivoting and Cholesky, and their solves, recursive and blocked over the packed GEMM, TRSM and SYRK; a factorization returns `(info, err)`, a positive `info` being a result (see [docs/design.md](docs/design.md) decision 10) |
 | 3 | `Strsm`/`Dtrsm`, `Strmm`/`Dtrmm`, `Ssyrk`/`Dsyrk`, `Ssyr2k`/`Dsyr2k`, `Ssymm`/`Dsymm`, blocked on the packed GEMM (a residual bound for trsm, see [docs/design.md](docs/design.md) decision 9) |
 | 3 | `Sgemm`, `Dgemm`; `SgemmStrided`, `DgemmStrided` (row and column stride per operand, as BLIS's `bli_?gemm`, no copy of a sliced or transposed view); `HasSgemmKernel` |
 | 2 | `Sgemv`, `Dgemv` |
@@ -68,11 +69,33 @@ so the results are the same on every architecture. They are the equality oracle
 of the tests and a public option for callers who need the reference's exact
 rounding. They are not fast.
 
+## LAPACK: LU and Cholesky (unreleased)
+
+```go
+import "github.com/go-blas/blas/lapack"
+
+// A = P*L*U, in place; ipiv is 1-based as in LAPACK. info > 0 means U(info,info)
+// is exactly zero: a result, not an error. err is non-nil only when info < 0.
+info, err := lapack.Dgetrf(n, n, a, lda, ipiv)
+err = lapack.Dgetrs(blas.NoTrans, n, nrhs, a, lda, ipiv, b, ldb)
+
+// A = L*L**T; info > 0 means the leading minor of order info is not positive definite.
+info, err = lapack.Dpotrf(blas.Lower, n, a, lda)
+err = lapack.Dpotrs(blas.Lower, n, nrhs, a, lda, b, ldb)
+```
+
+The reference LAPACK 3.12 signatures and `xerbla` numbering, column-major, the
+same conventions as the BLAS above. Each routine states a backward-error bound
+(`|P A - L U| <= gamma_{3r+2} |L||U|` for getrf, and so on, in the package
+comment of `lapack`), asserted against the 256-bit oracle. `netlib` has ports of
+`dgetrf.f`, `dgetrf2.f`, `dgetrs.f`, `dlaswp.f`, `dpotrf.f`, `dpotrf2.f`,
+`dpotrs.f` and their single precision twins as the exact option.
+
 ## Next
 
 Complex BLAS (`Cgemm`, `Zgemm`, `Zgemv`, `Zdotc`/`Zdotu`, ... on `complex64` and
-`complex128` slices), then LAPACK (`zgetrf`, `zheevd`, `zgesdd`, ...), under the
-same naming and error conventions; see [docs/design.md](docs/design.md).
+`complex128` slices), then the rest of LAPACK (`zgetrf`, `zheevd`, `zgesdd`, ...),
+under the same naming and error conventions; see [docs/design.md](docs/design.md).
 
 ## Flags
 

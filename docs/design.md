@@ -249,6 +249,173 @@ returns.
    to a well-conditioned triangle before the class comparison, since a random
    triangle overflows in one order of summation and not in another.
 
+10. **LAPACK, first part (unreleased): package `lapack`, `Sgetrf`/`Dgetrf`,
+    `Sgetrs`/`Dgetrs`, `Spotrf`/`Dpotrf`, `Spotrs`/`Dpotrs`.** julia's
+    libblastrampoline needs them for `\`, `lu` and `cholesky`
+    ([go-embedded-julia/julia#67](https://github.com/go-embedded-julia/julia/issues/67)).
+    They are LAPACK 3.12's signatures, parameter for parameter, column-major, with
+    the conventions of decisions 1 to 4: flags case-insensitive (`Transpose`,
+    `Uplo`; for real types `ConjTrans` is `Trans`), `*ArgError` with xerbla's
+    numbers, overflow-safe length checks in `internal/check` (`Getrf`, `Getrs`,
+    `Potrf`, `Potrs` and their `Lens`, shared by `lapack` and `netlib`), the
+    reference's quick returns before the slice checks.
+
+    *Parameter numbers*: getrf m 1, n 2, a 3, lda 4, ipiv 5; getrs trans 1, n 2,
+    nrhs 3, a 4, lda 5, ipiv 6, b 7, ldb 8; potrf uplo 1, n 2, a 3, lda 4; potrs
+    uplo 1, n 2, nrhs 3, a 4, lda 5, b 6, ldb 7. The reference's own tests are on m,
+    n, nrhs, lda, ldb and the flags (`INFO` -1, -2, -3, -4, -5, -7, -8 as in
+    `dgetrf.f`, `dgetrs.f`, `dpotrf.f`, `dpotrs.f`); a slice too short is reported
+    against its own number, `ipiv` against `min(m, n)` (getrf) or `n` (getrs).
+    Getrs also refuses a pivot outside `1..n` as parameter 6: the reference would
+    read outside the array, and a pivot is data from a caller that may have
+    corrupted it.
+
+    *The shape of `info`.* A positive `INFO` is a result, not an error: a singular
+    `U` (getrf; the factorization is complete, a solve with it divides by zero) or a
+    matrix that is not positive definite (potrf). So the factorizations return
+    **`(info int, err error)`**, `info` being exactly what LAPACK leaves in `INFO`:
+    0, `i > 0`, or `-p` for an illegal parameter `p`, in which case `err` is the
+    `*ArgError` of parameter `p` (`err.Info() == info`). `err != nil` if and only if
+    `info < 0`. A Fortran shim reads `info` alone; a Go caller tests `err`, then
+    `info`. The solves have no positive `INFO` and return `error` only. The same
+    shape for every later factorization (`geqrf`, `sytrf`, ...): the second result is
+    the xerbla error, the first is `INFO`. `ipiv` is `[]int`, 1-based, as in LAPACK
+    (a shim converts to its integer width).
+
+    *Algorithms.* No kernel was written. Getrf and potrf are recursive, as the
+    reference's `dgetrf2.f` and `dpotrf2.f` (Toledo's recursive LU), over the
+    blocked `blas.Dtrsm`, `Dgemm` and `Dsyrk` of decision 9, down to a panel of
+    `leaf` = 16 columns factored by plain loops (`getf2`, `potf2`: right-looking
+    LU with partial pivoting, the pivot being the first entry of largest magnitude
+    as `IDAMAX`, the multipliers formed with the reciprocal or, below the smallest
+    normal number, by division as the reference; Cholesky by inner products for
+    Upper and by a rank-1 update for Lower). The recursion is the same as
+    go-ndarray's `linalg.luRec` (read for it; ndarray's code is row-major and
+    generic, this is column-major with LAPACK's interchanges applied lazily, as
+    `dlaswp.f`). Getrs and potrs are two `Dtrsm` calls and the interchanges.
+    `leaf` is a variable only so that the tests can make 5-column matrices span
+    every level of the recursion (1, 2, 3 and the default are run).
+
+    *`netlib`* has the exact option, in the reference's order and block size: ports
+    of `dgetrf.f`, `dgetrf2.f`, `dgetrs.f`, `dlaswp.f`, `dpotrf.f`, `dpotrf2.f`,
+    `dpotrs.f` and the s twins of Reference-LAPACK 3.12.0 (`SRC`, opened), with the
+    block size `ilaenv.f` answers for `GETRF` and `POTRF`, 64. They call the BLAS
+    ports of `internal/ref`, so they are without FMA, and they are the equality
+    oracle of the tests. The ports skip a BLAS call the reference makes with `k = 0`
+    (a `GEMM` or `SYRK` over no columns), since the ports leave the BLAS quick
+    returns to their callers.
+
+    *Bounds*, asserted against the 256-bit oracle (`oracle.Prec`) with `u` the unit
+    roundoff, `gamma_k = ku/(1-ku)`, `r = min(m, n)`, `L^`, `U^` the computed
+    factors, `C^` the computed Cholesky factor, `X^` the computed solution, all
+    elementwise:
+    * getrf: `|P A - L^ U^| <= gamma_{3r+2} |L^||U^|`, for `INFO > 0` too (the
+      factorization as completed);
+    * getrs: `|P B - L^ U^ X^| <= gamma_{2n+8} |L^||U^||X^|`, and for Trans
+      `|B - U^T L^T P X^| <= gamma_{2n+8} |U^T||L^T||P X^|` (`P X^` the forward
+      interchanges applied to `X^`);
+    * potrf: `|A - C^T C^| <= gamma_{3n+3} |C^T||C^|` (Upper; `C^ C^T` for Lower) on
+      the triangle referenced, for `INFO > 0` on the leading block of order
+      `INFO - 1`;
+    * potrs: `|B - C^T C^ X^| <= gamma_{2n+8} |C^T||C^||X^|` (Upper; Lower likewise).
+
+    **Sources, opened 2026-11-17:** J. W. Demmel and N. J. Higham, *Stability of
+    Block Algorithms with Fast Level 3 BLAS*, LAPACK Working Note 22 (the copy of
+    decision 9). §2.1, "Error Analysis" of block LU, pp. 4 to 8: p. 4, eq. (3), a
+    product by a conventional BLAS3 satisfies `|C^ - AB| <= n u |A||B| + O(u^2)`,
+    and eq. (4), substitution gives `T X^ = B + dB`, `|dB| <= (m+1) u |T||X^| +
+    O(u^2)`, componentwise; p. 5 to 7, the induction on the blocks of the outer
+    product form, eqs. (5) to (14), ending in eq. (15), `|| dA || <= u (delta(n,r)
+    ||A|| + theta(n,r) || L^ || || U^ ||) + O(u^2)`, with `delta(n,r) <= n/r` (eq. 7
+    and the text after eq. 15) and, with partial pivoting, the same for `P A` ("(14)
+    (with A replaced by P A) and (15) remain valid, with minor changes in the
+    recurrences", p. 7 to 8); p. 8, eqs. (17) and (18), the solve by the computed LU
+    and the residual for several right-hand sides, with the closing remark that the
+    analysis "adapts in a straightforward way to ... block Cholesky factorization of
+    (banded) symmetric positive definite matrices". **What the source gives and
+    what it does not.** Its bounds are first-order and *normwise* (a max-entry
+    norm) for the block factorization; only (3) and (4), for the BLAS operations,
+    are componentwise. The bounds above are componentwise and non-asymptotic: the
+    `gamma` form with constants `3r+2`, `3n+3`, `2n+8` is **my own widening** of
+    those first-order results. The constants are not derived from a proof and not
+    taken from a source: I chose them with the pieces in mind (the `gemm` bound
+    `gamma_{k+2}` and the `trsm` residual bound `gamma_{s+4}` of decisions 4 and 9,
+    each applied to the blocks of every level of the recursion, plus the panel's
+    own sums of at most `r` terms) and with room, without summing them, and they are
+    *tested*, over every panel width and shape of the test suite, not proved. The reference list of LAWN 22 names Demmel,
+    *On floating point errors in Cholesky* (LAWN 14, its ref. [8]) and Higham's
+    book; **neither was opened**, they are named here, not cited, and no Cholesky
+    constant of this package comes from them. Page 3 carries the caveat that
+    matters for the blocked algorithms: for conventional BLAS3 "it is generally
+    accepted that the same stability results are valid, although we are not aware
+    of any detailed proofs". The blocked and recursive algorithms here rest on
+    that statement plus the bounds of the BLAS they call; where it fails, the tests
+    (against the oracle, on random mixed-magnitude matrices, singular and not
+    positive definite ones, and the fuzz targets) are what stands, as for `trsm`
+    in decision 9.
+
+    *Quick returns that carry no `// guard` marker.* The `m = 0 || n = 0` return of
+    `getrf` and the `n = 0` return of `potrf` in `lapack`: disabling them changes
+    nothing (the recursion does nothing on an empty matrix and returns INFO 0), so
+    the mutant is equivalent to the original and no test can kill it. The same two
+    lines in `netlib` are unmarked for another reason: the ported `dgetrf2.f` and
+    `dpotrf2.f` recurse without end on an empty matrix (the reference never gets
+    there, its callers return first), and a mutant that overflows the stack is found
+    by the runtime, not by an assertion. Both are tested by the quick-return cases of
+    `TestArgErrors` (nil slices, `m = 0`, `n = 0`). The quick returns of `getrs` and
+    `potrs` are guards, and are killed.
+
+    *Testing.* Every bound above for both implementations, `float32` and `float64`,
+    padded `lda` and `ldb`, every `Trans`/`Uplo` flag in both cases, panel widths 1,
+    2, 3 and 16, shapes up to 130 (past netlib's block of 64: 63, 64, 65, ragged last
+    blocks, wide and tall); zero columns (exact `INFO`), a negative, zero or NaN
+    diagonal for potrf (exact `INFO` in every block position); a subnormal pivot
+    (division, as the reference); NaN and Inf in the data (no panic, no error, a
+    leading NaN is the pivot as in `IDAMAX`); every parameter number, every short
+    slice, the quick returns; `lapack` against `netlib` on `INFO` and `*ArgError`
+    over a grid of arguments; a ref-level test of `Laswp` (increments 1, -1, 0,
+    columns on both sides of the 32-column unroll) and of `Getrf`/`Potrf` at block
+    sizes other than 64. Eight fuzz targets (`FuzzDgetrf` ... `FuzzSpotrs`), with the
+    committed corpus `lapack/testdata/fuzz` (written by `fuzzcorpus`, run by
+    `fuzzall`), compare `lapack` with `netlib` (same `*ArgError`, same `INFO`,
+    outputs untouched on an error or a quick return) and, on finite data of
+    moderate magnitude, both with the bound; the fuzzer found two bugs of the
+    harness itself, kept in the corpus. Whole module block coverage 100%
+    (`covblocks`); `guardmut` on the LAPACK files, 47 guards, none survives.
+
+    *Measured* against netlib's ports (not against OpenBLAS or LAPACK proper, of
+    which this repository has no run), `lapack/bench_test.go`, a cross-compiled
+    test binary on cfarm420 (AMD EPYC 7773X, linux/amd64), `taskset -c 9`,
+    `GOMAXPROCS=1`, `-test.benchtime 300ms -test.count 3`, files in
+    `~/nd-bench/lapack1/`, 2026-11-17. The run was deferred until the machine's
+    1-minute load fell under 8 (it was 40 to 50 shortly before): **1-minute load 5.73
+    at the start, 2.64 after**. Median of three runs, Gflop/s, `lapack / netlib`;
+    flops counted are `2n^3/3` (getrf), `n^3/3` (potrf), `2 n^2 nrhs` (the solves,
+    `nrhs` = 64), the operation's own, not the blocked code's; one core of a shared
+    machine, three runs, no confidence interval (the spread of the three is up to
+    about 15%, `potrs` float64 at n = 512, and mostly under 3%):
+
+    | | n = 64 | 128 | 256 | 512 | 1024 |
+    |---|---|---|---|---|---|
+    | getrf float64 | 4.06 / 2.10 | 5.16 / 2.22 | 7.36 / 2.27 | 10.84 / 2.37 | 15.55 / 2.54 |
+    | getrf float32 | 4.08 / 2.05 | 5.45 / 2.00 | 8.07 / 2.29 | 13.21 / 2.42 | 21.22 / 2.49 |
+    | potrf float64 | 2.93 / 1.89 | 3.48 / 2.06 | 5.52 / 2.16 | 8.58 / 2.24 | 13.30 / 2.38 |
+    | potrf float32 | 3.13 / 1.91 | 3.59 / 2.03 | 5.53 / 2.19 | 9.79 / 2.34 | 16.21 / 2.37 |
+    | getrs float64 | 2.08 / 2.05 | 3.81 / 2.27 | 6.79 / 2.31 | 10.55 / 2.35 | 16.53 / 2.40 |
+    | getrs float32 | 2.04 / 2.02 | 3.92 / 2.19 | 7.46 / 2.22 | 13.37 / 2.33 | 21.28 / 2.38 |
+    | potrs float64 | 1.88 / 1.85 | 3.50 / 2.10 | 6.24 / 2.19 | 10.23 / 2.24 | 15.49 / 2.29 |
+    | potrs float32 | 1.83 / 1.89 | 3.63 / 2.03 | 6.80 / 2.18 | 12.06 / 2.20 | 19.60 / 2.24 |
+
+    Every size from 128 up is 1.7 to 8.5 times netlib's. At n = 64 the solves
+    are level with it (two `Trsm` of 64 rows are one diagonal block of the scalar
+    reference loops, `blockSize` of decision 9), and `potrs` float32 is 3% under
+    (1.83 against 1.89, inside the spread of the runs). The rates grow with n
+    because more of the work is in the GEMM; potrf trails getrf by about 15% at
+    n = 1024 (13.3 against 15.6 in float64), which this run does not explain (it
+    did not profile). The scalar panel and diagonal blocks are what holds trsm at
+    half of syrk's rate in the table above, and a smaller diagonal kernel behind
+    `Trsm` is the obvious next step, a measurement away.
+
 ## What was moved from go-ndarray
 
 From `go-ndarray/ndarray` at `main` (v0.41.3, commit `8370f0f`):

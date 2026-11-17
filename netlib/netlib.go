@@ -9,6 +9,10 @@
 // without FMA contraction; they are the equality oracle the tests of package
 // blas use while porting.
 //
+// It also has the LAPACK 3.12 ports behind package lapack (lapack.go): dgetrf.f,
+// dgetrf2.f, dgetrs.f, dlaswp.f, dpotrf.f, dpotrf2.f, dpotrs.f and their single
+// precision twins, with the reference's block size of 64.
+//
 // The signatures, argument checks and errors are those of package blas, which
 // it shares its types with. The routines are not fast: use package blas unless
 // the exact reference rounding is the point.
