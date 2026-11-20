@@ -249,7 +249,7 @@ returns.
    to a well-conditioned triangle before the class comparison, since a random
    triangle overflows in one order of summation and not in another.
 
-10. **LAPACK, first part (unreleased): package `lapack`, `Sgetrf`/`Dgetrf`,
+10. **LAPACK, first part (v0.4.0): package `lapack`, `Sgetrf`/`Dgetrf`,
     `Sgetrs`/`Dgetrs`, `Spotrf`/`Dpotrf`, `Spotrs`/`Dpotrs`.** julia's
     libblastrampoline needs them for `\`, `lu` and `cholesky`
     ([go-embedded-julia/julia#67](https://github.com/go-embedded-julia/julia/issues/67)).

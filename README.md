@@ -3,8 +3,9 @@
 Pure-Go BLAS with the Fortran reference signatures, column-major: real
 (`float32`/`float64`) level 1, gemv and level 3 (gemm, trsm, trmm, syrk, syr2k,
 symm), with a SIMD GEMM on six
-architectures, error bounds stated per routine, and a netlib-exact option.
-Complex (c/z) BLAS and LAPACK are next.
+architectures, and the first LAPACK routines (LU and Cholesky, with their
+solves), error bounds stated per routine, and a netlib-exact option. Complex
+(c/z) BLAS and the rest of LAPACK are next.
 
 ```go
 import "github.com/go-blas/blas"
@@ -16,11 +17,11 @@ err := blas.Dgemm(blas.NoTrans, blas.NoTrans, m, n, k, 1, a, lda, b, ldb, 0, c, 
 
 ## Status
 
-First release line, real routines only (the LAPACK row is on `main` and not yet in a release):
+First release line, real routines only (the LAPACK row since v0.4.0):
 
 | Level | Routines (`S` and `D`) |
 |---|---|
-| LAPACK (package `lapack`, **unreleased**) | `Sgetrf`/`Dgetrf`, `Sgetrs`/`Dgetrs`, `Spotrf`/`Dpotrf`, `Spotrs`/`Dpotrs`: LU with partial pivoting and Cholesky, and their solves, recursive and blocked over the packed GEMM, TRSM and SYRK; a factorization returns `(info, err)`, a positive `info` being a result (see [docs/design.md](docs/design.md) decision 10) |
+| LAPACK (package `lapack`, v0.4.0) | `Sgetrf`/`Dgetrf`, `Sgetrs`/`Dgetrs`, `Spotrf`/`Dpotrf`, `Spotrs`/`Dpotrs`: LU with partial pivoting and Cholesky, and their solves, recursive and blocked over the packed GEMM, TRSM and SYRK; a factorization returns `(info, err)`, a positive `info` being a result (see [docs/design.md](docs/design.md) decision 10) |
 | 3 | `Strsm`/`Dtrsm`, `Strmm`/`Dtrmm`, `Ssyrk`/`Dsyrk`, `Ssyr2k`/`Dsyr2k`, `Ssymm`/`Dsymm`, blocked on the packed GEMM (a residual bound for trsm, see [docs/design.md](docs/design.md) decision 9) |
 | 3 | `Sgemm`, `Dgemm`; `SgemmStrided`, `DgemmStrided` (row and column stride per operand, as BLIS's `bli_?gemm`, no copy of a sliced or transposed view); `HasSgemmKernel` |
 | 2 | `Sgemv`, `Dgemv` |
@@ -69,7 +70,7 @@ so the results are the same on every architecture. They are the equality oracle
 of the tests and a public option for callers who need the reference's exact
 rounding. They are not fast.
 
-## LAPACK: LU and Cholesky (unreleased)
+## LAPACK: LU and Cholesky (since v0.4.0)
 
 ```go
 import "github.com/go-blas/blas/lapack"
