@@ -114,13 +114,8 @@ func trmvUN[T Float](n int, a []T, lda int, x []T) {
 // Iladlc is ILADLC (iladlc.f): the index (1-based) of the last non-zero column
 // of the m x n matrix a, 0 if there is none; m > 0 unless n = 0.
 func Iladlc[T Float](m, n int, a []T, lda int) int {
-	if n == 0 {
-		return n
-	}
-	// Quick test for the common case where one corner is non-zero.
-	if a[(n-1)*lda] != 0 || a[(m-1)+(n-1)*lda] != 0 {
-		return n
-	}
+	// The reference's quick test of the two corners is left out: the scan below
+	// gives the same index (0 for n = 0) and reads nothing when n = 0.
 	for j := n; j >= 1; j-- {
 		for i := 0; i < m; i++ {
 			if a[i+(j-1)*lda] != 0 {
@@ -134,12 +129,8 @@ func Iladlc[T Float](m, n int, a []T, lda int) int {
 // Iladlr is ILADLR (iladlr.f): the index (1-based) of the last non-zero row of
 // the m x n matrix a, 0 if there is none; n > 0 unless m = 0.
 func Iladlr[T Float](m, n int, a []T, lda int) int {
-	if m == 0 {
-		return m
-	}
-	if a[m-1] != 0 || a[(m-1)+(n-1)*lda] != 0 {
-		return m
-	}
+	// The reference's quick test of the corners is left out: the scan below gives
+	// the same index (0 for m = 0) and reads nothing when m = 0 or n = 0.
 	// Scan up each column tracking the last zero row seen.
 	last := 0
 	for j := 0; j < n; j++ {
@@ -210,9 +201,8 @@ func larfgSafmin[T Float]() T {
 // On exit *alpha is beta and x (n-1 elements, stride incx) holds v(2:n); tau is
 // returned.
 func Larfg[T Float](n int, alpha *T, x []T, incx int) (tau T) {
-	if n <= 1 {
-		return 0
-	}
+	// N <= 1 is TAU = 0 in the reference; here Nrm2 of no element is 0, which
+	// is the H = I branch below.
 	xnorm := Nrm2(n-1, x, incx)
 	if xnorm == 0 {
 		// H = I.
