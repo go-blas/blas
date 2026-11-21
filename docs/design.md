@@ -426,6 +426,44 @@ returns.
     half of syrk's rate in the table above, and a smaller diagonal kernel behind
     `Trsm` is the obvious next step, a measurement away.
 
+11. **LAPACK, QR (unreleased): `Sgeqrf`/`Dgeqrf`, `Sormqr`/`Dormqr`,
+    `Sorgqr`/`Dorgqr`** (requested by go-embedded-julia, julia#67), in
+    package `lapack`, with ports of the reference (3.12.0) in `netlib`. The
+    algorithms are the reference's: xGEQRF (block 32, crossover 128) over xGEQR2,
+    xLARFG, xLARF and, for the block, xLARFT and xLARFB; xORMQR over xORM2R;
+    xORGQR over xORG2R. One implementation serves both packages, `internal/ref`,
+    parameterised by the four level 2 and 3 kernels it calls (`Gemm`, `Trmm`,
+    `Gemv`, `Ger`): `netlib` passes the reference loops, `lapack` the packed
+    `Gemm` and `Trmm` of package `blas`, `Gemv`, and the rank-1 update as an
+    `Axpy` per column. The workspace of the reference is allocated, not passed, so
+    the numbering of an `*blas.ArgError` is the reference's with the workspace
+    parameters left in place.
+
+    *The bound.* Per column, against the exact product of the stored reflectors
+    (`Q = H(1) ... H(k)` formed in 256-bit arithmetic): `||A(:,j) - (QR)(:,j)||_2
+    <= g ||A(:,j)||_2`, `||Q**T Q - I||_F <= g`, and the analogues for Orgqr
+    and Ormqr (package comment of `lapack`), `g = gamma_{8(m+n)+16}`. The
+    only source opened for it is LAWN 22 (Demmel and Higham, "Stability of
+    block algorithms with fast level 3 BLAS"), section 3, equation (30): it shows
+    that a product of Householder transformations applied through the WY
+    representation is an exact orthogonal update of a perturbation bounded by
+    first-order terms in `u`, and concludes that the analysis of the unblocked
+    algorithm carries over with changed constants. It does not give this constant.
+    **`8(m+n)+16` is a tested constant, not a proved one**: the tests assert it
+    for block configurations from 2 to 32 columns and crossovers from 0 to 5,
+    on random and extreme-scale data, in both precisions; it is a stated bound the code is asserted against, and a
+    counterexample would be a defect of the bound's constant, to be raised and
+    stated again.
+
+    *Tests.* The oracle is the exact `Q` of the stored reflectors in 256-bit
+    arithmetic, not agreement with netlib; NaN and Inf reach the same elements as
+    in the reference at the default block sizes. Fuzz targets for the six routines
+    with a committed corpus; the coverage gate and `guardmut` apply.
+
+    *Performance.* To be measured against netlib's ports on cfarm420 as in decision
+    10 when the machine's load allows (below 8); the table is added to this decision
+    when it is.
+
 ## What was moved from go-ndarray
 
 From `go-ndarray/ndarray` at `main` (v0.41.3, commit `8370f0f`):
