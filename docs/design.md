@@ -426,6 +426,83 @@ returns.
     half of syrk's rate in the table above, and a smaller diagonal kernel behind
     `Trsm` is the obvious next step, a measurement away.
 
+11. **LAPACK, QR (v0.5.0): `Sgeqrf`/`Dgeqrf`, `Sormqr`/`Dormqr`,
+    `Sorgqr`/`Dorgqr`** (requested by go-embedded-julia, julia#67), in
+    package `lapack`, with ports of the reference (3.12.0) in `netlib`. The
+    algorithms are the reference's: xGEQRF (block 32, crossover 128) over xGEQR2,
+    xLARFG, xLARF and, for the block, xLARFT and xLARFB; xORMQR over xORM2R;
+    xORGQR over xORG2R. One implementation serves both packages, `internal/ref`,
+    parameterised by the four level 2 and 3 kernels it calls (`Gemm`, `Trmm`,
+    `Gemv`, `Ger`): `netlib` passes the reference loops, `lapack` the packed
+    `Gemm` and `Trmm` of package `blas`, `Gemv`, and the rank-1 update as an
+    `Axpy` per column. The workspace of the reference is allocated, not passed, so
+    the numbering of an `*blas.ArgError` is the reference's with the workspace
+    parameters left in place.
+
+    *The bound.* Per column, against the exact product of the stored reflectors
+    (`Q = H(1) ... H(k)` formed in 256-bit arithmetic): `||A(:,j) - (QR)(:,j)||_2
+    <= g ||A(:,j)||_2`, `||Q**T Q - I||_F <= g`, and the analogues for Orgqr
+    and Ormqr (package comment of `lapack`), `g = gamma_{8(m+n)+16}`. The
+    only source opened for it is LAWN 22 (Demmel and Higham, "Stability of
+    block algorithms with fast level 3 BLAS"), section 3, equation (30): it shows
+    that a product of Householder transformations applied through the WY
+    representation is an exact orthogonal update of a perturbation bounded by
+    first-order terms in `u`, and concludes that the analysis of the unblocked
+    algorithm carries over with changed constants. It does not give this constant.
+    **`8(m+n)+16` is a tested constant, not a proved one**: the tests assert it
+    in both precisions on random data (and, for Geqrf, extreme-scale data), for
+    five block configurations (block, crossover, Ormqr block): (2, 0, 2), (3, 2, 3),
+    (4, 5, 4) and (8, 0, 7) on shapes up to 65 x 30 (Ormqr cases up to k = 31),
+    where every panel path of the blocked code runs on a few dozen columns, and
+    the default (32, 128, 32) on those shapes plus, for that configuration only
+    (the exact products would cost minutes under the others), a 160 x 140
+    Geqrf and Orgqr (k = 140 above the crossover 128, so the default blocked path
+    runs) and an Ormqr case with k = 40 (above its block 32). That is the native
+    lanes; the emulated ones (qemu, `go test -short`) run (3, 2, 3) and the
+    default on the small shapes only: with every configuration, ppc64le under qemu
+    ran past go test's ten minutes. It is a stated bound
+    the code is asserted against, and a counterexample would be a defect of the
+    bound's constant, to be raised and stated again. The Geqrf test also asserts
+    the contract of xLARFG on every tau: 0, or in [1, 2] up to rounding.
+
+    *Tests.* The oracle is the exact `Q` of the stored reflectors in 256-bit
+    arithmetic, not agreement with netlib. Where NaN and Inf are compared, it is
+    the blocked `lapack` against the `netlib` port at the default block sizes,
+    and both run the same `internal/ref` algorithms with different kernels, so
+    that comparison shows the kernels agree, not that either matches the
+    Fortran reference. Fuzz targets for the six routines
+    with a committed corpus; the coverage gate and `guardmut` apply.
+
+    *Measured* against netlib's ports (not against OpenBLAS or LAPACK proper), as
+    in decision 10: `lapack/bench_test.go` (`BenchmarkGeqrf`, `BenchmarkOrgqr`,
+    `BenchmarkOrmqr`), cross-compiled test binary on cfarm420 (AMD EPYC 7773X,
+    linux/amd64), `taskset -c 9`, `GOMAXPROCS=1`, `-test.benchtime 300ms
+    -test.count 3`, head 2ddb654, 2026-11-22. cfarm420's 1-minute load was 1.13
+    before and 1.97 after. Median of three runs, Gflop/s, `lapack / netlib`, the
+    number of runs in parentheses; flops counted are `4n^3/3` (geqrf, orgqr) and
+    `2n^3` (ormqr, `nrhs` = n, left, Trans), the operation's own, not the blocked
+    code's; one core of a shared machine, no confidence interval:
+
+    | | n = 64 | 128 | 256 | 512 | 1024 |
+    |---|---|---|---|---|---|
+    | geqrf float64 | 3.84 / 2.33 | 5.15 / 2.34 | 7.24 / 1.97 | 10.70 / 1.98 | 14.35 / 2.20 |
+    | geqrf float32 | 2.26 / 2.38 | 2.66 / 2.27 | 6.50 / 2.03 | 11.81 / 2.12 | 18.32 / 2.24 |
+    | orgqr float64 | 4.11 / 2.47 | 5.54 / 2.27 | 8.51 / 1.68 | 11.47 / 2.14 | 15.00 / 2.23 |
+    | orgqr float32 | 2.34 / 2.50 | 2.68 / 2.24 | 7.56 / 1.56 | 12.36 / 2.12 | 19.21 / 2.17 |
+    | ormqr float64 | 2.26 / 1.59 | 4.44 / 1.86 | 7.50 / 2.06 | 10.83 / 2.13 | 13.08 / 2.21 |
+    | ormqr float32 | 2.39 / 1.68 | 5.11 / 1.97 | 9.22 / 2.11 | 14.08 / 2.13 | 19.80 / 2.20 |
+
+    From n = 256 up every cell is 3.2 to 9 times netlib's. Two cells
+    are behind it: float32 `geqrf` and `orgqr` at n = 64 (2.26 against 2.38 and
+    2.34 against 2.50, 5% and 6% under), an open defect. Float32 is also slow for
+    its size at n = 64 and 128 in all three routines (about 2.3 to 2.7 Gflop/s,
+    against 3.8 to 5.5 in float64), which this run does not explain: it did not
+    profile and the spread of the three runs was not tabulated. A likely cause,
+    not measured, is that below the crossover of 128 the work is the level 2
+    panel (`Gemv` and `Axpy` per column), which is not blocked; a faster panel
+    is the next step, a measurement away. This table is against netlib's ports,
+    not a claim against OpenBLAS, which this repository has not run.
+
 ## What was moved from go-ndarray
 
 From `go-ndarray/ndarray` at `main` (v0.41.3, commit `8370f0f`):

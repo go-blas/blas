@@ -3,8 +3,8 @@
 Pure-Go BLAS with the Fortran reference signatures, column-major: real
 (`float32`/`float64`) level 1, gemv and level 3 (gemm, trsm, trmm, syrk, syr2k,
 symm), with a SIMD GEMM on six
-architectures, and the first LAPACK routines (LU and Cholesky, with their
-solves), error bounds stated per routine, and a netlib-exact option. Complex
+architectures, and the first LAPACK routines (LU and Cholesky with their
+solves since v0.4.0; QR since v0.5.0), error bounds stated per routine, and a netlib-exact option. Complex
 (c/z) BLAS and the rest of LAPACK are next.
 
 ```go
@@ -17,11 +17,12 @@ err := blas.Dgemm(blas.NoTrans, blas.NoTrans, m, n, k, 1, a, lda, b, ldb, 0, c, 
 
 ## Status
 
-First release line, real routines only (the LAPACK row since v0.4.0):
+First release line, real routines only (the LAPACK rows since v0.4.0 and v0.5.0):
 
 | Level | Routines (`S` and `D`) |
 |---|---|
 | LAPACK (package `lapack`, v0.4.0) | `Sgetrf`/`Dgetrf`, `Sgetrs`/`Dgetrs`, `Spotrf`/`Dpotrf`, `Spotrs`/`Dpotrs`: LU with partial pivoting and Cholesky, and their solves, recursive and blocked over the packed GEMM, TRSM and SYRK; a factorization returns `(info, err)`, a positive `info` being a result (see [docs/design.md](docs/design.md) decision 10) |
+| LAPACK, QR (package `lapack`, v0.5.0) | `Sgeqrf`/`Dgeqrf`, `Sormqr`/`Dormqr`, `Sorgqr`/`Dorgqr`: Householder QR, multiplication by Q or Q**T, and generation of Q, the reference's blocked algorithms over the packed GEMM and TRMM; the bound's constant is tested, not proved (see [docs/design.md](docs/design.md) decision 11) |
 | 3 | `Strsm`/`Dtrsm`, `Strmm`/`Dtrmm`, `Ssyrk`/`Dsyrk`, `Ssyr2k`/`Dsyr2k`, `Ssymm`/`Dsymm`, blocked on the packed GEMM (a residual bound for trsm, see [docs/design.md](docs/design.md) decision 9) |
 | 3 | `Sgemm`, `Dgemm`; `SgemmStrided`, `DgemmStrided` (row and column stride per operand, as BLIS's `bli_?gemm`, no copy of a sliced or transposed view); `HasSgemmKernel` |
 | 2 | `Sgemv`, `Dgemv` |
@@ -91,6 +92,24 @@ same conventions as the BLAS above. Each routine states a backward-error bound
 comment of `lapack`), asserted against the 256-bit oracle. `netlib` has ports of
 `dgetrf.f`, `dgetrf2.f`, `dgetrs.f`, `dlaswp.f`, `dpotrf.f`, `dpotrf2.f`,
 `dpotrs.f` and their single precision twins as the exact option.
+
+### QR (since v0.5.0)
+
+```go
+// A = Q*R: R in the upper triangle of a, the reflectors below it, tau their scalars.
+err := lapack.Dgeqrf(m, n, a, lda, tau)
+// C := Q**T * C, with Q taken from the reflectors in a (k of them).
+err = lapack.Dormqr(blas.Left, blas.Trans, m, nrhs, k, a, lda, tau, c, ldc)
+// Overwrite the first n columns of a with the m x n matrix Q.
+err = lapack.Dorgqr(m, n, k, a, lda, tau)
+```
+
+The workspace arguments of the reference (`WORK`, `LWORK`) do not exist: the
+workspace is allocated. The bound is per column against the exact product of the
+stored reflectors, `gamma_{8(m+n)+16}`, a tested constant (LAWN 22 shows the
+blocked form keeps the Householder analysis, with changed constants); `netlib`
+has `dgeqrf.f`, `dgeqr2.f`, `dlarfg.f`, `dlarf.f`, `dlarft.f`, `dlarfb.f`,
+`dorgqr.f`, `dorg2r.f`, `dormqr.f`, `dorm2r.f` ports.
 
 ## Next
 

@@ -377,6 +377,91 @@ func main() {
 			g(up, 3, 0, 0, 0, 0, 0, 0, 0)
 		}
 	}
+	// QR. cfg selects the block configuration (0 to 3 small ones, 4 the default,
+	// the only one netlib has, so the only one NaN and Inf are compared on).
+	for _, p := range []struct{ prefix, kind string }{{"D", "float64"}, {"S", "float32"}} {
+		// m, n, ldaD, dA, dT, flavor, cfg
+		g := func(m, n, la, dA, dT, flavor, cfg int) {
+			addL("Fuzz"+p.prefix+"geqrf", i8(m), i8(n), i8(la), i8(dA), i8(dT), u8(flavor), u64(m*100+n*10+cfg+flavor), u8(cfg))
+		}
+		g(7, 5, 0, 0, 0, 0, 4)
+		g(5, 7, 2, 0, 0, 0, 0)
+		g(9, 9, 0, 0, 0, 0, 1)
+		g(39, 39, 0, 0, 0, 0, 2)
+		g(38, 20, 1, 0, 0, 0, 3)
+		g(20, 38, 0, 0, 0, 0, 0)
+		g(39, 39, 0, 0, 0, 0, 4)
+		g(1, 1, 0, 0, 0, 0, 4)
+		g(1, 5, 0, 0, 0, 0, 4)
+		g(5, 1, 0, 0, 0, 0, 4)
+		g(-1, 3, 0, 0, 0, 0, 4) // param 1
+		g(3, -1, 0, 0, 0, 0, 4) // param 2
+		g(3, 3, -1, 0, 0, 0, 4) // param 4
+		g(6, 6, 0, -1, 0, 0, 4) // A one short
+		g(6, 6, 0, 0, -1, 0, 4) // tau one short
+		g(0, 5, 0, 0, 0, 0, 4)  // m = 0
+		g(5, 0, 0, 0, 0, 0, 4)  // n = 0
+		g(8, 8, 0, 0, 0, 1, 4)  // NaN planted
+		g(8, 8, 0, 0, 0, 2, 4)  // infinity planted
+		g(8, 8, 0, 0, 0, 3, 0)  // huge
+		g(8, 8, 0, 0, 0, 4, 0)  // tiny
+	}
+	for _, p := range []struct{ prefix, kind string }{{"D", "float64"}, {"S", "float32"}} {
+		// side (L R l r X), trans (N T n t C X), m, n, k, ldaD, ldcD, dA, dT, dC, flavor, cfg
+		g := func(sd, tr, m, n, k, la, lc, dA, dT, dC, flavor, cfg int) {
+			addL("Fuzz"+p.prefix+"ormqr", u8(sd), u8(tr), i8(m), i8(n), i8(k), i8(la), i8(lc), i8(dA), i8(dT), i8(dC), u8(flavor), u64(m*100+n*10+k+sd+tr), u8(cfg))
+		}
+		g(0, 0, 7, 5, 3, 0, 0, 0, 0, 0, 0, 4)
+		g(0, 1, 9, 6, 6, 1, 2, 0, 0, 0, 0, 0)
+		g(1, 0, 6, 9, 5, 0, 0, 0, 0, 0, 0, 1)
+		g(1, 1, 5, 7, 7, 2, 0, 0, 0, 0, 0, 2)
+		g(2, 2, 12, 5, 12, 0, 0, 0, 0, 0, 0, 3)
+		g(3, 3, 5, 12, 12, 0, 1, 0, 0, 0, 0, 0)
+		g(0, 0, 39, 10, 10, 0, 0, 0, 0, 0, 0, 4)
+		g(1, 1, 10, 39, 10, 0, 0, 0, 0, 0, 0, 4)
+		g(0, 0, 38, 5, 20, 0, 0, 0, 0, 0, 0, 3)
+		g(4, 0, 3, 3, 3, 0, 0, 0, 0, 0, 0, 4)  // param 1
+		g(0, 5, 3, 3, 3, 0, 0, 0, 0, 0, 0, 4)  // param 2
+		g(0, 4, 3, 3, 3, 0, 0, 0, 0, 0, 0, 4)  // param 2: C is refused for a real Q
+		g(0, 0, -1, 3, 0, 0, 0, 0, 0, 0, 0, 4) // param 3
+		g(0, 0, 3, -1, 0, 0, 0, 0, 0, 0, 0, 4) // param 4
+		g(0, 0, 3, 3, -1, 0, 0, 0, 0, 0, 0, 4) // param 5
+		g(0, 0, 3, 3, 4, 0, 0, 0, 0, 0, 0, 4)  // k above nq
+		g(0, 0, 3, 3, 3, -1, 0, 0, 0, 0, 0, 4) // param 7
+		g(0, 0, 3, 3, 3, 0, -1, 0, 0, 0, 0, 4) // param 10
+		g(0, 0, 6, 6, 6, 0, 0, -1, 0, 0, 0, 4) // A one short
+		g(0, 0, 6, 6, 6, 0, 0, 0, -1, 0, 0, 4) // tau one short
+		g(0, 0, 6, 6, 6, 0, 0, 0, 0, -1, 0, 4) // C one short
+		g(0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 4)  // m = 0
+		g(0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 4)  // n = 0
+		g(0, 0, 5, 5, 0, 0, 0, 0, 0, 0, 0, 4)  // k = 0
+		g(0, 0, 8, 8, 8, 0, 0, 0, 0, 0, 1, 4)  // NaN planted
+		g(1, 1, 8, 8, 8, 0, 0, 0, 0, 0, 2, 4)  // infinity planted
+	}
+	for _, p := range []struct{ prefix, kind string }{{"D", "float64"}, {"S", "float32"}} {
+		// m, n, k, ldaD, dA, dT, flavor, cfg
+		g := func(m, n, k, la, dA, dT, flavor, cfg int) {
+			addL("Fuzz"+p.prefix+"orgqr", i8(m), i8(n), i8(k), i8(la), i8(dA), i8(dT), u8(flavor), u64(m*100+n*10+k+cfg), u8(cfg))
+		}
+		g(7, 5, 3, 0, 0, 0, 0, 4)
+		g(9, 9, 9, 0, 0, 0, 0, 0)
+		g(6, 6, 6, 2, 0, 0, 0, 1)
+		g(39, 39, 39, 0, 0, 0, 0, 4)
+		g(39, 30, 12, 1, 0, 0, 0, 2)
+		g(38, 20, 20, 0, 0, 0, 0, 3)
+		g(10, 4, 0, 0, 0, 0, 0, 4) // k = 0: the identity
+		g(1, 1, 1, 0, 0, 0, 0, 4)
+		g(-1, 0, 0, 0, 0, 0, 0, 4) // param 1
+		g(3, 4, 0, 0, 0, 0, 0, 4)  // param 2: n above m
+		g(3, 3, -1, 0, 0, 0, 0, 4) // param 3
+		g(3, 2, 3, 0, 0, 0, 0, 4)  // param 3: k above n
+		g(3, 3, 3, -1, 0, 0, 0, 4) // param 5
+		g(6, 6, 6, 0, -1, 0, 0, 4) // A one short
+		g(6, 6, 6, 0, 0, -1, 0, 4) // tau one short
+		g(3, 0, 0, 0, 0, 0, 0, 4)  // n = 0
+		g(8, 8, 8, 0, 0, 0, 1, 4)  // NaN planted
+		g(8, 8, 8, 0, 0, 0, 2, 4)  // infinity planted
+	}
 	for target, entries := range out {
 		dir := filepath.Join(*root, "testdata", "fuzz", target)
 		if rest, ok := strings.CutPrefix(target, "lapack:"); ok {

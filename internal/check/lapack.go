@@ -136,3 +136,112 @@ func PotrsLens(n, nrhs, lda, ldb, lenA, lenB int) int {
 	}
 	return 0
 }
+
+// Geqrf checks the dimension parameters of xGEQRF(M, N, A, LDA, TAU, WORK, LWORK,
+// INFO), in the reference's order (dgeqrf.f): M 1, N 2, LDA 4. The workspace
+// (WORK, LWORK) has no counterpart here: it is allocated.
+func Geqrf(m, n, lda int) int {
+	switch {
+	case m < 0: // guard
+		return 1
+	case n < 0: // guard
+		return 2
+	case lda < max(1, m): // guard
+		return 4
+	}
+	return 0
+}
+
+// GeqrfLens checks the slice lengths of a GEQRF whose dimensions Geqrf accepted
+// (min(m, n) = 0 needs nothing of either slice): A 3, TAU 5 (min(m, n) scalars
+// are written).
+func GeqrfLens(m, n, lda, lenA, lenTau int) int {
+	nA, okA := Need(m, n, lda)
+	if short(lenA, nA, okA) { // guard
+		return 3
+	}
+	if lenTau < min(m, n) { // guard
+		return 5
+	}
+	return 0
+}
+
+// Ormqr checks the dimension parameters of xORMQR(SIDE, TRANS, M, N, K, A, LDA,
+// TAU, C, LDC, WORK, LWORK, INFO), in the reference's order (dormqr.f): SIDE 1,
+// TRANS 2 ('N' or 'T' only, a real Q has no conjugate transpose: 'C' is refused),
+// M 3, N 4, K 5 (0 to the order nq of Q, M for Left, N for Right), LDA 7, LDC 10.
+// Flags are upper case.
+func Ormqr(side, trans byte, m, n, k, lda, ldc int) int {
+	nq := n
+	if side == 'L' {
+		nq = m
+	}
+	switch {
+	case !validSide(side): // guard
+		return 1
+	case trans != 'N' && trans != 'T': // guard
+		return 2
+	case m < 0: // guard
+		return 3
+	case n < 0: // guard
+		return 4
+	case k < 0 || k > nq: // guard
+		return 5
+	case lda < max(1, nq): // guard
+		return 7
+	case ldc < max(1, m): // guard
+		return 10
+	}
+	return 0
+}
+
+// OrmqrLens checks the slice lengths of an ORMQR whose dimensions Ormqr accepted
+// and that is not a quick return (m, n or k = 0): A 6 (nq x k), TAU 8 (k), C 9.
+func OrmqrLens(side byte, m, n, k, lda, ldc, lenA, lenTau, lenC int) int {
+	nq := n
+	if side == 'L' {
+		nq = m
+	}
+	nA, okA := Need(nq, k, lda)
+	if short(lenA, nA, okA) { // guard
+		return 6
+	}
+	if lenTau < k { // guard
+		return 8
+	}
+	nC, okC := Need(m, n, ldc)
+	if short(lenC, nC, okC) { // guard
+		return 9
+	}
+	return 0
+}
+
+// Orgqr checks the dimension parameters of xORGQR(M, N, K, A, LDA, TAU, WORK,
+// LWORK, INFO), in the reference's order (dorgqr.f): M 1, N 2 (0 to M), K 3 (0 to
+// N), LDA 5.
+func Orgqr(m, n, k, lda int) int {
+	switch {
+	case m < 0: // guard
+		return 1
+	case n < 0 || n > m: // guard
+		return 2
+	case k < 0 || k > n: // guard
+		return 3
+	case lda < max(1, m): // guard
+		return 5
+	}
+	return 0
+}
+
+// OrgqrLens checks the slice lengths of an ORGQR whose dimensions Orgqr accepted
+// accepted (n = 0 needs nothing of either slice, k <= n being checked): A 4 (m x n), TAU 6 (k).
+func OrgqrLens(m, n, k, lda, lenA, lenTau int) int {
+	nA, okA := Need(m, n, lda)
+	if short(lenA, nA, okA) { // guard
+		return 4
+	}
+	if lenTau < k { // guard
+		return 6
+	}
+	return 0
+}

@@ -1,12 +1,16 @@
-// Package lapack is the first LAPACK of the pure-Go BLAS of go-blas: the LU and
-// Cholesky factorizations and their solves, in single and double precision, with
-// the reference (netlib, LAPACK 3.12) signatures, column-major, so that a
-// Fortran ABI shim (julia's libblastrampoline, for one) can call them exactly:
+// Package lapack is the first LAPACK of the pure-Go BLAS of go-blas: the LU,
+// Cholesky and QR factorizations and their solves, in single and double
+// precision, with the reference (netlib, LAPACK 3.12) signatures, column-major,
+// so that a Fortran ABI shim (julia's libblastrampoline, for one) can call them
+// exactly:
 //
 //	Sgetrf/Dgetrf  LU factorization with partial pivoting, A = P*L*U
 //	Sgetrs/Dgetrs  solves A*X = B or A**T*X = B with the factors of getrf
 //	Spotrf/Dpotrf  Cholesky factorization, A = U**T*U or A = L*L**T
 //	Spotrs/Dpotrs  solves A*X = B with the factor of potrf
+//	Sgeqrf/Dgeqrf  QR factorization, A = Q*R, Q a product of Householder reflectors
+//	Sormqr/Dormqr  multiplies a matrix by Q or Q**T (either side) from the reflectors of geqrf
+//	Sorgqr/Dorgqr  generates the matrix Q with orthonormal columns from the reflectors of geqrf
 //
 // # Conventions
 //
@@ -59,6 +63,24 @@
 // decision 10, gives the sources opened, what they state, and what the blocked
 // algorithms rest on.
 //
+// The QR routines have a normwise bound, per column, against the exact product
+// of the stored reflectors (v and tau as the routine returned them, formed in
+// exact arithmetic), with Q = H(1) ... H(k), R the upper trapezoid of the
+// result, k = min(m, n), and g = gamma_{8(m+n)+16}:
+//
+//	Geqrf  ||A(:,j) - (Q R)(:,j)||_2 <= g ||A(:,j)||_2 for every column j, and ||Q**T Q - I||_F <= g
+//	Orgqr  ||Q^(:,j) - Q(:,j)||_2 <= g for every column j, and ||Q^**T Q^ - I||_F <= g
+//	Ormqr  ||C^ - op(Q) C||_F <= g ||C||_F (Left; C op(Q) for Right), op(Q) = Q or Q**T
+//
+// Unlike the bounds above, the constant of these is a tested one, not a proved
+// one: LAWN 22 (Demmel and Higham), section 3, equation (30), shows that the
+// product of the Householder transformations applied through the WY
+// representation is an exact orthogonal update of a perturbation bounded by
+// first-order terms in u, and concludes that the standard backward error
+// analysis of Householder algorithms holds for the blocked ones with the
+// constants changed; docs/design.md, decision 11, gives what was and was not
+// opened.
+//
 // # Algorithms
 //
 // Both factorizations are recursive (Toledo's recursive LU, as the reference's
@@ -67,6 +89,17 @@
 // Trsm and a Gemm, Potrf the order in halves, with a Trsm and a Syrk, down to a
 // panel of a few columns factored by plain loops. No kernel was written. The
 // solves are two Trsm calls and the row interchanges.
+//
+// The QR routines are the reference's blocked algorithms, line for line (xGEQRF
+// over xGEQR2 and xLARFT/xLARFB, xORMQR over xORM2R, xORGQR over xORG2R, with
+// ILAENV's block sizes 32 and crossover 128), and their work is the packed Gemm
+// and Trmm of package blas on the panels' trailing matrices; the level 2 work
+// of the panels (xGEMV, and the rank-1 update as Axpy per column) is not
+// blocked. The reference's workspace arguments (WORK, LWORK) do not exist
+// here: the workspace is allocated, so the parameter numbers of an *blas.ArgError
+// are those of the reference signature with the workspace left in place (Dgeqrf
+// m 1, n 2, a 3, lda 4, tau 5; Dormqr side 1 ... ldc 10; Dorgqr m 1 ... tau 6).
+// Dormqr takes Trans for Q**T and refuses ConjTrans, as the real routine does.
 package lapack
 
 import (
@@ -90,16 +123,19 @@ func must(err error) {
 	}
 }
 
-// ops are the three BLAS routines the algorithms call, for one element type.
+// ops are the BLAS routines the algorithms call, for one element type.
 type ops[T real] struct {
 	gemm func(tA, tB blas.Transpose, m, n, k int, alpha T, a []T, lda int, b []T, ldb int, beta T, c []T, ldc int) error
 	trsm func(side blas.Side, uplo blas.Uplo, tA blas.Transpose, diag blas.Diag, m, n int, alpha T, a []T, lda int, b []T, ldb int) error
 	syrk func(uplo blas.Uplo, trans blas.Transpose, n, k int, alpha T, a []T, lda int, beta T, c []T, ldc int) error
+	trmm func(side blas.Side, uplo blas.Uplo, tA blas.Transpose, diag blas.Diag, m, n int, alpha T, a []T, lda int, b []T, ldb int) error
+	gemv func(t blas.Transpose, m, n int, alpha T, a []T, lda int, x []T, incx int, beta T, y []T, incy int) error
+	axpy func(n int, alpha T, x []T, incx int, y []T, incy int) error
 }
 
 var (
-	dOps = &ops[float64]{blas.Dgemm, blas.Dtrsm, blas.Dsyrk}
-	sOps = &ops[float32]{blas.Sgemm, blas.Strsm, blas.Ssyrk}
+	dOps = &ops[float64]{blas.Dgemm, blas.Dtrsm, blas.Dsyrk, blas.Dtrmm, blas.Dgemv, blas.Daxpy}
+	sOps = &ops[float32]{blas.Sgemm, blas.Strsm, blas.Ssyrk, blas.Strmm, blas.Sgemv, blas.Saxpy}
 )
 
 // Dgetrf computes the LU factorization with partial pivoting of the m x n
