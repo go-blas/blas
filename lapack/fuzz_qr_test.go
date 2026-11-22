@@ -12,7 +12,8 @@ import (
 // *blas.ArgError; that an error or a quick return leaves every output as it was;
 // that on finite data of moderate magnitude both are within the bound against
 // the exact product of the stored reflectors; and, for the default block sizes
-// (netlib has no others), that NaN and Inf reach the same elements in both.
+// (netlib has no others), that NaN and Inf reach the same elements in both (lapack against the netlib port: both
+// run internal/ref, so this compares the kernels, not the Fortran reference).
 
 // fuzzQRConfig applies the block configuration sel selects and says whether it
 // is the default one.

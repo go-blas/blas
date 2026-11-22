@@ -450,14 +450,24 @@ returns.
     first-order terms in `u`, and concludes that the analysis of the unblocked
     algorithm carries over with changed constants. It does not give this constant.
     **`8(m+n)+16` is a tested constant, not a proved one**: the tests assert it
-    for block configurations from 2 to 32 columns and crossovers from 0 to 5,
-    on random and extreme-scale data, in both precisions; it is a stated bound the code is asserted against, and a
-    counterexample would be a defect of the bound's constant, to be raised and
-    stated again.
+    in both precisions on random data (and, for Geqrf, extreme-scale data), for
+    five block configurations (block, crossover, Ormqr block): (2, 0, 2), (3, 2, 3),
+    (4, 5, 4) and (8, 0, 7) on shapes up to 65 x 30 (Ormqr cases up to k = 31),
+    where every panel path of the blocked code runs on a few dozen columns, and
+    the default (32, 128, 32) on those shapes plus, for that configuration only
+    (the exact products would cost minutes under the others), a 160 x 140
+    Geqrf and Orgqr (k = 140 above the crossover 128, so the default blocked path
+    runs) and an Ormqr case with k = 40 (above its block 32). It is a stated bound
+    the code is asserted against, and a counterexample would be a defect of the
+    bound's constant, to be raised and stated again. The Geqrf test also asserts
+    the contract of xLARFG on every tau: 0, or in [1, 2] up to rounding.
 
     *Tests.* The oracle is the exact `Q` of the stored reflectors in 256-bit
-    arithmetic, not agreement with netlib; NaN and Inf reach the same elements as
-    in the reference at the default block sizes. Fuzz targets for the six routines
+    arithmetic, not agreement with netlib. Where NaN and Inf are compared, it is
+    the blocked `lapack` against the `netlib` port at the default block sizes,
+    and both run the same `internal/ref` algorithms with different kernels, so
+    that comparison shows the kernels agree, not that either matches the
+    Fortran reference. Fuzz targets for the six routines
     with a committed corpus; the coverage gate and `guardmut` apply.
 
     *Measured* against netlib's ports (not against OpenBLAS or LAPACK proper), as

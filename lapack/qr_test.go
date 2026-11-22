@@ -182,6 +182,23 @@ var qrShapes = [][2]int{
 	{33, 17}, {17, 33}, {40, 40}, {65, 30},
 }
 
+// defaultQR says whether the block sizes in force are the reference's.
+func defaultQR() bool {
+	nb, nx, onb := lapack.QR()
+	return nb == 32 && nx == 128 && onb == 32
+}
+
+// shapesQR is qrShapes, plus, under the default block sizes only (the exact
+// products of the small configurations would cost minutes), a shape whose k = 140
+// exceeds the crossover 128, so that Geqrf and Orgqr take their blocked path
+// there: the small shapes above reach it only through the small configurations.
+func shapesQR() [][2]int {
+	if defaultQR() {
+		return append(append([][2]int(nil), qrShapes...), [2]int{160, 140})
+	}
+	return qrShapes
+}
+
 // rFactor returns R, the upper trapezoid of a, as the m x n matrix.
 func rFactor[T float](a []T, m, n, lda int) bm {
 	r := newBM(m, n)
@@ -196,7 +213,11 @@ func rFactor[T float](a []T, m, n, lda int) bm {
 func TestGeqrfBound(t *testing.T) { eachQ(t, geqrfBoundT[float64], geqrfBoundT[float32]) }
 
 func geqrfBoundT[T float](t *testing.T, im qimpl[T]) {
-	for si, sh := range qrShapes {
+	slack := T(1e-14)
+	if _, single := any(T(0)).(float32); single {
+		slack = 1e-6
+	}
+	for si, sh := range shapesQR() {
 		m, n := sh[0], sh[1]
 		lda := m + si%3
 		a0 := general[T](newRNG(uint64(100+si)), m, n, lda)
@@ -206,6 +227,12 @@ func geqrfBoundT[T float](t *testing.T, im qimpl[T]) {
 		}
 		if err := im.geqrf(m, n, a, lda, tau); err != nil {
 			t.Fatalf("%dx%d: %v", m, n, err)
+		}
+		// The contract of xLARFG: tau is 0 (H = I) or in [1, 2] (up to rounding).
+		for i, v := range tau {
+			if v != 0 && (v < 1-slack || v > 2+slack) {
+				t.Fatalf("%dx%d: tau[%d] = %g, outside {0} and [1, 2]", m, n, i, v)
+			}
 		}
 		padUntouched(t, "geqrf", a, m, lda)
 		q := exactQ(a, m, min(m, n), lda, tau)
@@ -219,7 +246,7 @@ func geqrfBoundT[T float](t *testing.T, im qimpl[T]) {
 func TestOrgqrBound(t *testing.T) { eachQ(t, orgqrBoundT[float64], orgqrBoundT[float32]) }
 
 func orgqrBoundT[T float](t *testing.T, im qimpl[T]) {
-	for si, sh := range qrShapes {
+	for si, sh := range shapesQR() {
 		m, n := sh[0], sh[1]
 		if m < n {
 			m, n = n, m
@@ -267,6 +294,10 @@ func TestOrmqrBound(t *testing.T) { eachQ(t, ormqrBoundT[float64], ormqrBoundT[f
 
 func ormqrBoundT[T float](t *testing.T, im qimpl[T]) {
 	cases := [][3]int{{1, 1, 1}, {5, 3, 3}, {3, 5, 2}, {9, 9, 9}, {20, 7, 5}, {7, 20, 7}, {33, 40, 17}, {40, 33, 31}}
+	if defaultQR() {
+		// k = 40 > 32, the Ormqr block size: the blocked path, on both sides.
+		cases = append(cases, [3]int{60, 50, 40})
+	}
 	for ci, cs := range cases {
 		for _, sd := range []blas.Side{blas.Left, blas.Right} {
 			for _, tr := range []blas.Transpose{blas.NoTrans, blas.Trans} {
