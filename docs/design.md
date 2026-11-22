@@ -460,9 +460,35 @@ returns.
     in the reference at the default block sizes. Fuzz targets for the six routines
     with a committed corpus; the coverage gate and `guardmut` apply.
 
-    *Performance.* To be measured against netlib's ports on cfarm420 as in decision
-    10 when the machine's load allows (below 8); the table is added to this decision
-    when it is.
+    *Measured* against netlib's ports (not against OpenBLAS or LAPACK proper), as
+    in decision 10: `lapack/bench_test.go` (`BenchmarkGeqrf`, `BenchmarkOrgqr`,
+    `BenchmarkOrmqr`), cross-compiled test binary on cfarm420 (AMD EPYC 7773X,
+    linux/amd64), `taskset -c 9`, `GOMAXPROCS=1`, `-test.benchtime 300ms
+    -test.count 3`, head 2ddb654, 2026-11-22. cfarm420's 1-minute load was 1.13
+    before and 1.97 after. Median of three runs, Gflop/s, `lapack / netlib`, the
+    number of runs in parentheses; flops counted are `4n^3/3` (geqrf, orgqr) and
+    `2n^3` (ormqr, `nrhs` = n, left, Trans), the operation's own, not the blocked
+    code's; one core of a shared machine, no confidence interval:
+
+    | | n = 64 | 128 | 256 | 512 | 1024 |
+    |---|---|---|---|---|---|
+    | geqrf float64 | 3.84 / 2.33 | 5.15 / 2.34 | 7.24 / 1.97 | 10.70 / 1.98 | 14.35 / 2.20 |
+    | geqrf float32 | 2.26 / 2.38 | 2.66 / 2.27 | 6.50 / 2.03 | 11.81 / 2.12 | 18.32 / 2.24 |
+    | orgqr float64 | 4.11 / 2.47 | 5.54 / 2.27 | 8.51 / 1.68 | 11.47 / 2.14 | 15.00 / 2.23 |
+    | orgqr float32 | 2.34 / 2.50 | 2.68 / 2.24 | 7.56 / 1.56 | 12.36 / 2.12 | 19.21 / 2.17 |
+    | ormqr float64 | 2.26 / 1.59 | 4.44 / 1.86 | 7.50 / 2.06 | 10.83 / 2.13 | 13.08 / 2.21 |
+    | ormqr float32 | 2.39 / 1.68 | 5.11 / 1.97 | 9.22 / 2.11 | 14.08 / 2.13 | 19.80 / 2.20 |
+
+    From n = 256 up every cell is 3.2 to 9 times netlib's. Two cells
+    are behind it: float32 `geqrf` and `orgqr` at n = 64 (2.26 against 2.38 and
+    2.34 against 2.50, 5% and 6% under), an open defect. Float32 is also slow for
+    its size at n = 64 and 128 in all three routines (about 2.3 to 2.7 Gflop/s,
+    against 3.8 to 5.5 in float64), which this run does not explain: it did not
+    profile and the spread of the three runs was not tabulated. A likely cause,
+    not measured, is that below the crossover of 128 the work is the level 2
+    panel (`Gemv` and `Axpy` per column), which is not blocked; a faster panel
+    is the next step, a measurement away. This table is against netlib's ports,
+    not a claim against OpenBLAS, which this repository has not run.
 
 ## What was moved from go-ndarray
 
