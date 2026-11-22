@@ -39,6 +39,12 @@ func qrConfigs(name string) []qrConfig {
 	if name == "netlib" {
 		return []qrConfig{{}} // netlib has the reference's block sizes only
 	}
+	if testing.Short() {
+		// The emulated lanes (qemu, -short) ran past go test's 10 minutes with
+		// all five. (3, 2, 3) still spans many panels and the unblocked tail;
+		// the native lanes run every configuration.
+		return []qrConfig{{3, 2, 3}, {}}
+	}
 	return []qrConfig{{2, 0, 2}, {3, 2, 3}, {4, 5, 4}, {8, 0, 7}, {}}
 }
 
@@ -193,7 +199,7 @@ func defaultQR() bool {
 // exceeds the crossover 128, so that Geqrf and Orgqr take their blocked path
 // there: the small shapes above reach it only through the small configurations.
 func shapesQR() [][2]int {
-	if defaultQR() {
+	if defaultQR() && !testing.Short() {
 		return append(append([][2]int(nil), qrShapes...), [2]int{160, 140})
 	}
 	return qrShapes
@@ -294,7 +300,7 @@ func TestOrmqrBound(t *testing.T) { eachQ(t, ormqrBoundT[float64], ormqrBoundT[f
 
 func ormqrBoundT[T float](t *testing.T, im qimpl[T]) {
 	cases := [][3]int{{1, 1, 1}, {5, 3, 3}, {3, 5, 2}, {9, 9, 9}, {20, 7, 5}, {7, 20, 7}, {33, 40, 17}, {40, 33, 31}}
-	if defaultQR() {
+	if defaultQR() && !testing.Short() {
 		// k = 40 > 32, the Ormqr block size: the blocked path, on both sides.
 		cases = append(cases, [3]int{60, 50, 40})
 	}

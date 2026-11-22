@@ -457,7 +457,10 @@ returns.
     the default (32, 128, 32) on those shapes plus, for that configuration only
     (the exact products would cost minutes under the others), a 160 x 140
     Geqrf and Orgqr (k = 140 above the crossover 128, so the default blocked path
-    runs) and an Ormqr case with k = 40 (above its block 32). It is a stated bound
+    runs) and an Ormqr case with k = 40 (above its block 32). That is the native
+    lanes; the emulated ones (qemu, `go test -short`) run (3, 2, 3) and the
+    default on the small shapes only: with every configuration, ppc64le under qemu
+    ran past go test's ten minutes. It is a stated bound
     the code is asserted against, and a counterexample would be a defect of the
     bound's constant, to be raised and stated again. The Geqrf test also asserts
     the contract of xLARFG on every tau: 0, or in [1, 2] up to rounding.
