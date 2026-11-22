@@ -108,7 +108,7 @@ func gemmFMAKernel() *emit.Function {
 		}
 	}
 	for r := 0; r < 12; r++ {
-		b.Raw(fmt.Sprintf("VXORPD Y%d, Y%d, Y%d", r, r, r))
+		b.Raw("VXORPD Y%d, Y%d, Y%d", r, r, r)
 	}
 	// Unrolled by two k steps, with a one-step tail. The A panel streams from
 	// L2 (the B micro-panel stays in L1 across the whole A block), so each pair
@@ -117,11 +117,11 @@ func gemmFMAKernel() *emit.Function {
 	b.Raw("SHRQ $1, R10")
 	b.Raw("JZ ftail")
 	b.Raw("fkloop:")
-	b.Raw(fmt.Sprintf("PREFETCHT0 %d(SI)", 8*gemmMR*8))
+	b.Raw("PREFETCHT0 %d(SI)", 8*gemmMR*8)
 	fmaStep(b, 0)
 	fmaStep(b, 1)
-	b.Raw(fmt.Sprintf("ADDQ $%d, SI", 2*8*gemmMR))
-	b.Raw(fmt.Sprintf("ADDQ $%d, DI", 2*8*gemmNR))
+	b.Raw("ADDQ $%d, SI", 2*8*gemmMR)
+	b.Raw("ADDQ $%d, DI", 2*8*gemmNR)
 	b.Raw("DECQ R10")
 	b.Raw("JNZ fkloop")
 	b.Raw("ftail:")
@@ -130,9 +130,9 @@ func gemmFMAKernel() *emit.Function {
 	fmaStep(b, 0)
 	b.Raw("fstore:")
 	for r := 0; r < gemmMR; r++ {
-		b.Raw(fmt.Sprintf("VADDPD (DX), Y%d, Y15", 2*r))
+		b.Raw("VADDPD (DX), Y%d, Y15", 2*r)
 		b.Raw("VMOVUPD Y15, (DX)")
-		b.Raw(fmt.Sprintf("VADDPD 32(DX), Y%d, Y15", 2*r+1))
+		b.Raw("VADDPD 32(DX), Y%d, Y15", 2*r+1)
 		b.Raw("VMOVUPD Y15, 32(DX)")
 		if r < gemmMR-1 {
 			b.Raw("ADDQ R8, DX")
@@ -172,17 +172,17 @@ func gemm32FMAKernel() *emit.Function {
 		}
 	}
 	for r := 0; r < 12; r++ {
-		b.Raw(fmt.Sprintf("VXORPS Y%d, Y%d, Y%d", r, r, r))
+		b.Raw("VXORPS Y%d, Y%d, Y%d", r, r, r)
 	}
 	b.Raw("MOVQ CX, R10")
 	b.Raw("SHRQ $1, R10")
 	b.Raw("JZ stail")
 	b.Raw("skloop:")
-	b.Raw(fmt.Sprintf("PREFETCHT0 %d(SI)", 16*gemmMR*4))
+	b.Raw("PREFETCHT0 %d(SI)", 16*gemmMR*4)
 	fma32Step(b, 0)
 	fma32Step(b, 1)
-	b.Raw(fmt.Sprintf("ADDQ $%d, SI", 2*4*gemmMR))
-	b.Raw(fmt.Sprintf("ADDQ $%d, DI", 2*4*gemm32NR))
+	b.Raw("ADDQ $%d, SI", 2*4*gemmMR)
+	b.Raw("ADDQ $%d, DI", 2*4*gemm32NR)
 	b.Raw("DECQ R10")
 	b.Raw("JNZ skloop")
 	b.Raw("stail:")
@@ -191,9 +191,9 @@ func gemm32FMAKernel() *emit.Function {
 	fma32Step(b, 0)
 	b.Raw("sstore:")
 	for r := 0; r < gemmMR; r++ {
-		b.Raw(fmt.Sprintf("VADDPS (DX), Y%d, Y15", 2*r))
+		b.Raw("VADDPS (DX), Y%d, Y15", 2*r)
 		b.Raw("VMOVUPS Y15, (DX)")
-		b.Raw(fmt.Sprintf("VADDPS 32(DX), Y%d, Y15", 2*r+1))
+		b.Raw("VADDPS 32(DX), Y%d, Y15", 2*r+1)
 		b.Raw("VMOVUPS Y15, 32(DX)")
 		if r < gemmMR-1 {
 			b.Raw("ADDQ R8, DX")
@@ -244,11 +244,11 @@ func gemmUAKernel(mr int, single bool) *emit.Function {
 	b.LoadArg("ldb", "R13")
 	b.LoadArg("c", "DX")
 	b.LoadArg("ldc", "R9")
-	b.Raw(fmt.Sprintf("SHLQ $%d, R8", shift))  // lda -> bytes
-	b.Raw(fmt.Sprintf("SHLQ $%d, R13", shift)) // ldb -> bytes
-	b.Raw(fmt.Sprintf("SHLQ $%d, R9", shift))  // ldc -> bytes
-	b.Raw("LEAQ (R8)(R8*2), R11")              // 3*lda
-	b.Raw("LEAQ (R8)(R8*4), R12")              // 5*lda
+	b.Raw("SHLQ $%d, R8", shift)  // lda -> bytes
+	b.Raw("SHLQ $%d, R13", shift) // ldb -> bytes
+	b.Raw("SHLQ $%d, R9", shift)  // ldc -> bytes
+	b.Raw("LEAQ (R8)(R8*2), R11") // 3*lda
+	b.Raw("LEAQ (R8)(R8*4), R12") // 5*lda
 	b.Raw("MOVQ DX, R10")
 	for r := 0; r < mr; r++ {
 		b.Raw("PREFETCHT0 (R10)")
@@ -258,28 +258,28 @@ func gemmUAKernel(mr int, single bool) *emit.Function {
 		}
 	}
 	for r := 0; r < 2*mr; r++ {
-		b.Raw(fmt.Sprintf("VXOR%s Y%d, Y%d, Y%d", sfx, r, r, r))
+		b.Raw("VXOR%s Y%d, Y%d, Y%d", sfx, r, r, r)
 	}
 	b.Raw("TESTQ CX, CX")
 	b.Raw("JZ uastore")
 	b.Raw("uakloop:")
-	b.Raw(fmt.Sprintf("VMOVU%s (DI), Y12", sfx))
-	b.Raw(fmt.Sprintf("VMOVU%s 32(DI), Y13", sfx))
+	b.Raw("VMOVU%s (DI), Y12", sfx)
+	b.Raw("VMOVU%s 32(DI), Y13", sfx)
 	for r := 0; r < mr; r++ {
-		b.Raw(fmt.Sprintf("%s %s, Y14", bcast, uaRow(r)))
-		b.Raw(fmt.Sprintf("VFMADD231%s Y12, Y14, Y%d", sfx, 2*r))
-		b.Raw(fmt.Sprintf("VFMADD231%s Y13, Y14, Y%d", sfx, 2*r+1))
+		b.Raw("%s %s, Y14", bcast, uaRow(r))
+		b.Raw("VFMADD231%s Y12, Y14, Y%d", sfx, 2*r)
+		b.Raw("VFMADD231%s Y13, Y14, Y%d", sfx, 2*r+1)
 	}
-	b.Raw(fmt.Sprintf("ADDQ $%d, SI", size))
+	b.Raw("ADDQ $%d, SI", size)
 	b.Raw("ADDQ R13, DI") // next B row: ldb bytes on
 	b.Raw("DECQ CX")
 	b.Raw("JNZ uakloop")
 	b.Raw("uastore:")
 	for r := 0; r < mr; r++ {
-		b.Raw(fmt.Sprintf("VADD%s (DX), Y%d, Y15", sfx, 2*r))
-		b.Raw(fmt.Sprintf("VMOVU%s Y15, (DX)", sfx))
-		b.Raw(fmt.Sprintf("VADD%s 32(DX), Y%d, Y15", sfx, 2*r+1))
-		b.Raw(fmt.Sprintf("VMOVU%s Y15, 32(DX)", sfx))
+		b.Raw("VADD%s (DX), Y%d, Y15", sfx, 2*r)
+		b.Raw("VMOVU%s Y15, (DX)", sfx)
+		b.Raw("VADD%s 32(DX), Y%d, Y15", sfx, 2*r+1)
+		b.Raw("VMOVU%s Y15, 32(DX)", sfx)
 		if r < mr-1 {
 			b.Raw("ADDQ R9, DX")
 		}
@@ -298,12 +298,12 @@ func uaRow(r int) string {
 // fma32Step emits one k step of the 6x16 float32 FMA tile.
 func fma32Step(b *amd64.Builder, step int) {
 	ao, bo := 4*gemmMR*step, 4*gemm32NR*step
-	b.Raw(fmt.Sprintf("VMOVUPS %d(DI), Y12", bo))    // B cols 0..7
-	b.Raw(fmt.Sprintf("VMOVUPS %d(DI), Y13", bo+32)) // B cols 8..15
+	b.Raw("VMOVUPS %d(DI), Y12", bo)    // B cols 0..7
+	b.Raw("VMOVUPS %d(DI), Y13", bo+32) // B cols 8..15
 	for r := 0; r < gemmMR; r++ {
-		b.Raw(fmt.Sprintf("VBROADCASTSS %d(SI), Y14", ao+4*r))
-		b.Raw(fmt.Sprintf("VFMADD231PS Y12, Y14, Y%d", 2*r))
-		b.Raw(fmt.Sprintf("VFMADD231PS Y13, Y14, Y%d", 2*r+1))
+		b.Raw("VBROADCASTSS %d(SI), Y14", ao+4*r)
+		b.Raw("VFMADD231PS Y12, Y14, Y%d", 2*r)
+		b.Raw("VFMADD231PS Y13, Y14, Y%d", 2*r+1)
 	}
 }
 
@@ -311,12 +311,12 @@ func fma32Step(b *amd64.Builder, step int) {
 // values at that many steps past SI and DI.
 func fmaStep(b *amd64.Builder, step int) {
 	ao, bo := 8*gemmMR*step, 8*gemmNR*step
-	b.Raw(fmt.Sprintf("VMOVUPD %d(DI), Y12", bo))    // B cols 0..3
-	b.Raw(fmt.Sprintf("VMOVUPD %d(DI), Y13", bo+32)) // B cols 4..7
+	b.Raw("VMOVUPD %d(DI), Y12", bo)    // B cols 0..3
+	b.Raw("VMOVUPD %d(DI), Y13", bo+32) // B cols 4..7
 	for r := 0; r < gemmMR; r++ {
-		b.Raw(fmt.Sprintf("VBROADCASTSD %d(SI), Y14", ao+8*r))
-		b.Raw(fmt.Sprintf("VFMADD231PD Y12, Y14, Y%d", 2*r))
-		b.Raw(fmt.Sprintf("VFMADD231PD Y13, Y14, Y%d", 2*r+1))
+		b.Raw("VBROADCASTSD %d(SI), Y14", ao+8*r)
+		b.Raw("VFMADD231PD Y12, Y14, Y%d", 2*r)
+		b.Raw("VFMADD231PD Y13, Y14, Y%d", 2*r+1)
 	}
 }
 
@@ -340,7 +340,7 @@ func gemmSSE2HalfKernel() *emit.Function {
 	b.LoadArg("ldc", "R8")
 	b.Raw("SHLQ $3, R8")
 	for r := 0; r < 12; r++ {
-		b.Raw(fmt.Sprintf("XORPS X%d, X%d", r, r))
+		b.Raw("XORPS X%d, X%d", r, r)
 	}
 	b.Raw("TESTQ CX, CX")
 	b.Raw("JZ hstore")
@@ -348,24 +348,24 @@ func gemmSSE2HalfKernel() *emit.Function {
 	b.Raw("MOVUPD (DI), X12")
 	b.Raw("MOVUPD 16(DI), X13")
 	for r := 0; r < gemmMR; r++ {
-		b.Raw(fmt.Sprintf("MOVDDUP %d(SI), X14", 8*r)) // X14 = [a,a]
+		b.Raw("MOVDDUP %d(SI), X14", 8*r) // X14 = [a,a]
 		b.Raw("MOVAPS X12, X15")
 		b.Raw("MULPD X14, X15")
-		b.Raw(fmt.Sprintf("ADDPD X15, X%d", 2*r))
+		b.Raw("ADDPD X15, X%d", 2*r)
 		b.Raw("MULPD X13, X14") // the broadcast is spent: reuse it for the product
-		b.Raw(fmt.Sprintf("ADDPD X14, X%d", 2*r+1))
+		b.Raw("ADDPD X14, X%d", 2*r+1)
 	}
-	b.Raw(fmt.Sprintf("ADDQ $%d, SI", 8*gemmMR))
-	b.Raw(fmt.Sprintf("ADDQ $%d, DI", 8*gemmNR))
+	b.Raw("ADDQ $%d, SI", 8*gemmMR)
+	b.Raw("ADDQ $%d, DI", 8*gemmNR)
 	b.Raw("DECQ CX")
 	b.Raw("JNZ hkloop")
 	b.Raw("hstore:")
 	for r := 0; r < gemmMR; r++ {
 		b.Raw("MOVUPD (DX), X14")
-		b.Raw(fmt.Sprintf("ADDPD X%d, X14", 2*r))
+		b.Raw("ADDPD X%d, X14", 2*r)
 		b.Raw("MOVUPD X14, (DX)")
 		b.Raw("MOVUPD 16(DX), X15")
-		b.Raw(fmt.Sprintf("ADDPD X%d, X15", 2*r+1))
+		b.Raw("ADDPD X%d, X15", 2*r+1)
 		b.Raw("MOVUPD X15, 16(DX)")
 		if r < gemmMR-1 {
 			b.Raw("ADDQ R8, DX")

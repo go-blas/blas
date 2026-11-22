@@ -164,22 +164,22 @@ func gemmKernel() *emit.Function {
 		Raw("VLD1.P 32(R1), [V20.D2, V21.D2]").
 		// FMLA Vacc.2D, Vb.2D, Va.D[i] => Vacc += Vb * Va[i].  row r uses A lane
 		// (r&1) of V20 (r<2) or V21 (r>=2).
-		Raw(fmlaElem(0, 16, 20, 0)). // row0 = a0
-		Raw(fmlaElem(1, 17, 20, 0)).
-		Raw(fmlaElem(2, 18, 20, 0)).
-		Raw(fmlaElem(3, 19, 20, 0)).
-		Raw(fmlaElem(4, 16, 20, 1)). // row1 = a1
-		Raw(fmlaElem(5, 17, 20, 1)).
-		Raw(fmlaElem(6, 18, 20, 1)).
-		Raw(fmlaElem(7, 19, 20, 1)).
-		Raw(fmlaElem(8, 16, 21, 0)). // row2 = a2
-		Raw(fmlaElem(9, 17, 21, 0)).
-		Raw(fmlaElem(10, 18, 21, 0)).
-		Raw(fmlaElem(11, 19, 21, 0)).
-		Raw(fmlaElem(12, 16, 21, 1)). // row3 = a3
-		Raw(fmlaElem(13, 17, 21, 1)).
-		Raw(fmlaElem(14, 18, 21, 1)).
-		Raw(fmlaElem(15, 19, 21, 1)).
+		Raw("%s", fmlaElem(0, 16, 20, 0)). // row0 = a0
+		Raw("%s", fmlaElem(1, 17, 20, 0)).
+		Raw("%s", fmlaElem(2, 18, 20, 0)).
+		Raw("%s", fmlaElem(3, 19, 20, 0)).
+		Raw("%s", fmlaElem(4, 16, 20, 1)). // row1 = a1
+		Raw("%s", fmlaElem(5, 17, 20, 1)).
+		Raw("%s", fmlaElem(6, 18, 20, 1)).
+		Raw("%s", fmlaElem(7, 19, 20, 1)).
+		Raw("%s", fmlaElem(8, 16, 21, 0)). // row2 = a2
+		Raw("%s", fmlaElem(9, 17, 21, 0)).
+		Raw("%s", fmlaElem(10, 18, 21, 0)).
+		Raw("%s", fmlaElem(11, 19, 21, 0)).
+		Raw("%s", fmlaElem(12, 16, 21, 1)). // row3 = a3
+		Raw("%s", fmlaElem(13, 17, 21, 1)).
+		Raw("%s", fmlaElem(14, 18, 21, 1)).
+		Raw("%s", fmlaElem(15, 19, 21, 1)).
 		Raw("SUB $1, R0").
 		Raw("CBNZ R0, gkloop").
 		// C += acc, row by row, via VFMLA against V31=[1.0,1.0]: exact, so
@@ -264,18 +264,18 @@ func gemmUAKernel(mr int, single bool) *emit.Function {
 		LoadArg("ldb", "R16").
 		LoadArg("c", "R3").
 		LoadArg("ldc", "R4").
-		Raw(fmt.Sprintf("LSL $%d, R2, R2", shift)).
-		Raw(fmt.Sprintf("LSL $%d, R16, R16", shift)). // B rows ldb elements apart (BLIS's b += rs_b)
-		Raw(fmt.Sprintf("LSL $%d, R4, R4", shift))
+		Raw("LSL $%d, R2, R2", shift).
+		Raw("LSL $%d, R16, R16", shift). // B rows ldb elements apart (BLIS's b += rs_b)
+		Raw("LSL $%d, R4, R4", shift)
 	for r := 0; r < mr; r++ { // row pointers R5.. = a + r*lda
 		if r == 0 {
 			b.Raw("MOVD R1, R5")
 		} else {
-			b.Raw(fmt.Sprintf("ADD R2, R%d, R%d", 4+r, 5+r))
+			b.Raw("ADD R2, R%d, R%d", 4+r, 5+r)
 		}
 	}
 	for v := 0; v < mr*vecs; v++ {
-		b.Raw(fmt.Sprintf("VEOR V%d.B16, V%d.B16, V%d.B16", v, v, v))
+		b.Raw("VEOR V%d.B16, V%d.B16, V%d.B16", v, v, v)
 	}
 	u := 16 / size // k steps per A vector
 	fmla, scalar := fmlaElem, "FMOVD"
@@ -283,19 +283,19 @@ func gemmUAKernel(mr int, single bool) *emit.Function {
 		fmla, scalar = fmlaElemS, "FMOVS"
 	}
 	step := func(lane int) {
-		b.Raw(fmt.Sprintf("VLD1.P (R13)(R16), %s", blist)) // post-increment by ldb
+		b.Raw("VLD1.P (R13)(R16), %s", blist) // post-increment by ldb
 		for r := 0; r < mr; r++ {
 			for v := 0; v < vecs; v++ {
-				b.Raw(fmla(vecs*r+v, 16+v, 20+r, lane))
+				b.Raw("%s", fmla(vecs*r+v, 16+v, 20+r, lane))
 			}
 		}
 	}
-	b.Raw(fmt.Sprintf("LSR $%d, R0, R14", shift4(u))). // whole groups of u steps
-								Raw(fmt.Sprintf("AND $%d, R0, R15", u-1)). // remaining steps
-								Raw("CBZ R14, uatail").
-								Raw("uakloop:")
+	b.Raw("LSR $%d, R0, R14", shift4(u)). // whole groups of u steps
+						Raw("AND $%d, R0, R15", u-1). // remaining steps
+						Raw("CBZ R14, uatail").
+						Raw("uakloop:")
 	for r := 0; r < mr; r++ {
-		b.Raw(fmt.Sprintf("VLD1.P 16(R%d), [V%d.%s]", 5+r, 20+r, arr))
+		b.Raw("VLD1.P 16(R%d), [V%d.%s]", 5+r, 20+r, arr)
 	}
 	for s := 0; s < u; s++ {
 		step(s)
@@ -306,18 +306,18 @@ func gemmUAKernel(mr int, single bool) *emit.Function {
 		Raw("CBZ R15, uastore").
 		Raw("uatloop:")
 	for r := 0; r < mr; r++ {
-		b.Raw(fmt.Sprintf("%s.P %d(R%d), F%d", scalar, size, 5+r, 20+r))
+		b.Raw("%s.P %d(R%d), F%d", scalar, size, 5+r, 20+r)
 	}
 	step(0)
 	b.Raw("SUB $1, R15").
 		Raw("CBNZ R15, uatloop").
 		Raw("uastore:")
 	for r := 0; r < mr; r++ {
-		b.Raw(fmt.Sprintf("VLD1 (R3), %s", blist))
+		b.Raw("VLD1 (R3), %s", blist)
 		for v := 0; v < vecs; v++ {
-			b.Raw(fmt.Sprintf("VFADD V%d.%s, V%d.%s, V%d.%s", vecs*r+v, arr, 16+v, arr, 16+v, arr))
+			b.Raw("VFADD V%d.%s, V%d.%s, V%d.%s", vecs*r+v, arr, 16+v, arr, 16+v, arr)
 		}
-		b.Raw(fmt.Sprintf("VST1 %s, (R3)", blist))
+		b.Raw("VST1 %s, (R3)", blist)
 		if r < mr-1 {
 			b.Raw("ADD R4, R3, R3")
 		}
@@ -374,7 +374,7 @@ func gemm32Kernel() *emit.Function {
 		LoadArg("ldc", "R4").
 		Raw("LSL $2, R4, R4") // ldc -> bytes
 	for r := 0; r < 16; r++ {
-		b.Raw(fmt.Sprintf("VEOR V%d.B16, V%d.B16, V%d.B16", r, r, r))
+		b.Raw("VEOR V%d.B16, V%d.B16, V%d.B16", r, r, r)
 	}
 	b.Raw("CBZ R0, sstore").
 		Raw("skloop:").
@@ -382,16 +382,16 @@ func gemm32Kernel() *emit.Function {
 		Raw("VLD1.P 32(R1), [V18.S4, V19.S4]")  // A column: 8 floats
 	for r := 0; r < 8; r++ {
 		areg, lane := 18+r/4, r%4
-		b.Raw(fmlaElemS(2*r, 16, areg, lane))
-		b.Raw(fmlaElemS(2*r+1, 17, areg, lane))
+		b.Raw("%s", fmlaElemS(2*r, 16, areg, lane))
+		b.Raw("%s", fmlaElemS(2*r+1, 17, areg, lane))
 	}
 	b.Raw("SUB $1, R0").
 		Raw("CBNZ R0, skloop").
 		Raw("sstore:")
 	for r := 0; r < 8; r++ {
 		b.Raw("VLD1 (R3), [V16.S4, V17.S4]")
-		b.Raw(fmt.Sprintf("VFADD V%d.S4, V16.S4, V16.S4", 2*r))
-		b.Raw(fmt.Sprintf("VFADD V%d.S4, V17.S4, V17.S4", 2*r+1))
+		b.Raw("VFADD V%d.S4, V16.S4, V16.S4", 2*r)
+		b.Raw("VFADD V%d.S4, V17.S4, V17.S4", 2*r+1)
 		b.Raw("VST1 [V16.S4, V17.S4], (R3)")
 		if r < 7 {
 			b.Raw("ADD R4, R3, R3")
