@@ -426,7 +426,7 @@ returns.
     half of syrk's rate in the table above, and a smaller diagonal kernel behind
     `Trsm` is the obvious next step, a measurement away.
 
-11. **LAPACK, QR (unreleased): `Sgeqrf`/`Dgeqrf`, `Sormqr`/`Dormqr`,
+11. **LAPACK, QR (v0.5.0): `Sgeqrf`/`Dgeqrf`, `Sormqr`/`Dormqr`,
     `Sorgqr`/`Dorgqr`** (requested by go-embedded-julia, julia#67), in
     package `lapack`, with ports of the reference (3.12.0) in `netlib`. The
     algorithms are the reference's: xGEQRF (block 32, crossover 128) over xGEQR2,
