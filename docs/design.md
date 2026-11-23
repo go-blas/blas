@@ -554,7 +554,44 @@ returns.
     (1.29 million executions) without a failure before this change; the
     coverage gate, `guardmut` and the fuzz lane apply.
 
-    *Measured:* the table below is added once the cfarm420 run is in.
+    *Measured* (2026-11-23, cfarm420, AMD EPYC 7773X, one core:
+    `taskset -c 9`, `GOMAXPROCS=1`; 1-minute load 3.6 to 4.3 before and after,
+    below the 8 limit). Go: `-test.benchtime 300ms -test.count 3`, median of
+    three. NumPy: `numpy.linalg.eigh` / `eigvalsh` (`UPLO='L'`, OpenBLAS with
+    one thread, so LAPACK `syevd`), median of three 300 ms runs, same
+    symmetric matrix (seed 3); the grid was run twice and the second round
+    differs from the first by at most 10 % in every cell (the A/A control).
+    Times in microseconds per call, `V` = eigenvectors, `N` = values only.
+    Go and NumPy ran back to back, not interleaved cell by cell.
+
+    | type | n | mode | lapack | netlib | NumPy (rounds 1 / 2) | lapack / NumPy |
+    |---|---|---|---|---|---|---|
+    | float64 | 64 | N | 231 | 318 | 169 / 163 | 1.4 |
+    | float64 | 64 | V | 851 | 982 | 349 / 348 | 2.4 |
+    | float64 | 128 | N | 1183 | 1759 | 645 / 607 | 1.8 |
+    | float64 | 128 | V | 4737 | 6302 | 1487 / 1563 | 3.2 |
+    | float64 | 256 | N | 6728 | 12274 | 2771 / 2825 | 2.4 |
+    | float64 | 256 | V | 31248 | 43465 | 7088 / 7036 | 4.4 |
+    | float64 | 512 | N | 40100 | 66801 | 14766 / 15296 | 2.7 |
+    | float64 | 512 | V | 218503 | 319415 | 39045 / 41203 | 5.6 |
+    | float32 | 64 | N | 243 | 271 | 163 / 179 | 1.5 |
+    | float32 | 64 | V | 786 | 783 | 355 / 355 | 2.2 |
+    | float32 | 128 | N | 1218 | 1576 | 647 / 614 | 1.9 |
+    | float32 | 128 | V | 4896 | 5733 | 1512 / 1440 | 3.2 |
+    | float32 | 256 | N | 6799 | 9718 | 3365 / 3405 | 2.0 |
+    | float32 | 256 | V | 30121 | 37726 | 8126 / 8404 | 3.7 |
+    | float32 | 512 | N | 38092 | 61896 | 17848 / 17811 | 2.1 |
+    | float32 | 512 | V | 189793 | 293382 | 46480 / 43533 | 4.1 |
+
+    Reading: the blocked `lapack` path beats `netlib` in every cell (up to
+    1.7 times at n = 512, the one tie being float32 n = 64 V), but **every
+    row is slower than NumPy, by 1.4 to 5.6 times: an open defect**, not
+    accepted. The gap grows with n and is largest with vectors. The cause is
+    not profiled yet; the hypotheses are the `steqr` rotations applied to `Z`
+    at level 1 (`lasr`) where `syevd` uses divide and conquer (`stedc`) with
+    level 3 products, and the `sytrd` / `orgtr` trailing updates not using the
+    packed GEMM driver. Profiling and those two are the next slices; the
+    contract (the error bounds above) is unchanged by them.
 
 ## What was moved from go-ndarray
 
