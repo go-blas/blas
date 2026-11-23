@@ -40,6 +40,11 @@ type Kern[T Float] struct {
 	Trmm func(upper, notA, nounit bool, m, n int, alpha T, a []T, lda int, b []T, ldb int)
 	Gemv func(notA bool, m, n int, alpha T, a []T, lda int, x []T, incx int, beta T, y []T, incy int)
 	Ger  func(m, n int, alpha T, x, y []T, a []T, lda int)
+	// Symv, Syr2 and Syr2k are the BLAS the symmetric eigensolver (eig.go) adds:
+	// unit increments, Syr2k with the flags as booleans (upper, notA).
+	Symv  func(upper bool, n int, alpha T, a []T, lda int, x []T, beta T, y []T)
+	Syr2  func(upper bool, n int, alpha T, x, y []T, a []T, lda int)
+	Syr2k func(upper, notA bool, n, k int, alpha T, a []T, lda int, b []T, ldb int, beta T, c []T, ldc int)
 }
 
 // RefKern is the Kern of this package's ports of the reference BLAS.
@@ -51,6 +56,13 @@ func RefKern[T Float]() *Kern[T] {
 		},
 		Gemv: Gemv[T],
 		Ger:  Ger[T],
+		Symv: func(upper bool, n int, alpha T, a []T, lda int, x []T, beta T, y []T) {
+			Symv(upper, n, alpha, a, lda, x, 1, beta, y, 1)
+		},
+		Syr2: func(upper bool, n int, alpha T, x, y []T, a []T, lda int) {
+			Syr2(upper, n, alpha, x, 1, y, 1, a, lda)
+		},
+		Syr2k: Syr2k[T],
 	}
 }
 

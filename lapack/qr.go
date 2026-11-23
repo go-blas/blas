@@ -59,6 +59,15 @@ func (o *ops[T]) kern() *ref.Kern[T] {
 				}
 			}
 		},
+		Symv: func(upper bool, n int, alpha T, a []T, lda int, x []T, beta T, y []T) {
+			must(o.symv(uplo(upper), n, alpha, a, lda, x, 1, beta, y, 1))
+		},
+		Syr2: func(upper bool, n int, alpha T, x, y []T, a []T, lda int) {
+			must(o.syr2(uplo(upper), n, alpha, x, 1, y, 1, a, lda))
+		},
+		Syr2k: func(upper, notA bool, n, k int, alpha T, a []T, lda int, b []T, ldb int, beta T, c []T, ldc int) {
+			must(o.syr2k(uplo(upper), tr(notA), n, k, alpha, a, lda, b, ldb, beta, c, ldc))
+		},
 	}
 }
 

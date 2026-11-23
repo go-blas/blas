@@ -503,6 +503,96 @@ returns.
     is the next step, a measurement away. This table is against netlib's ports,
     not a claim against OpenBLAS, which this repository has not run.
 
+12. **The symmetric eigensolver (unreleased): `Ssyev`/`Dsyev` and what they
+    need, ported from reference LAPACK 3.12, bounds stated as tested constants.**
+    The root package gains `Ssymv`/`Dsymv`, `Ssyr2`/`Dsyr2`, `Srot`/`Drot`,
+    `Sswap`/`Dswap`, `Scopy`/`Dcopy`; `lapack` gains `Syev` over `sytrd` (blocked
+    `latrd` panel plus the packed `Syr2k`, `sytd2` below the crossover), `orgtr`
+    (`orgql`/`org2l`; the upper form is the reference's), `steqr` (implicit QL/QR
+    with `lasr`) and `sterf` (root-free QL/QR), and the auxiliaries `lamch`,
+    `lartg`, `lae2`, `laev2`, `lasr`, `lasrt`, `lascl`, `laset`, `lanst`,
+    `lansy`. As for decision 10, the workspace arguments do not exist, and a
+    positive `info` (an unconverged eigenvalue) is a result with `err == nil`.
+    `netlib` holds the eigen routines on the unblocked reference kernels; the
+    BLAS routines above have no `netlib` twin, as they are the reference loops
+    already.
+
+    *Bounds.* With `u` the unit roundoff, `gamma_k = ku/(1-ku)`, each constant is
+    tested, not proved (the analyses of Demmel, *Applied Numerical Linear
+    Algebra*, section 5, and LAWN 22 give the shape `O(n) u ||A||`, not the
+    constant of this code): `A - Q T Q^T` in Frobenius norm at most
+    `gamma_{16n+32} ||A||_F` (`sytrd`); `Q^T Q - I` the same constant over
+    `sqrt(n)` (`orgtr`); `T Z - Z L` at most `gamma_{30n} ||T||_F` and the
+    eigenvalues of `steqr`/`sterf` within `gamma_{30n} ||T||_2` of an exact
+    Sturm-sequence oracle in 256-bit arithmetic; `Syev` residual `A Z - Z L`,
+    each column's residual, `Z^T Z - I` and the eigenvalues against the exact
+    ones, all at `gamma_{16n}`. `Symv` is within `gamma_{n+2}(|alpha||A||x| +
+    |beta||y|)` per element and `Syr2` within `gamma_4(|A| + |alpha|(|x||y|^T +
+    |y||x|^T))` (the reference loop is four operations deep, not three: the
+    first version of the test said gamma_3 and failed).
+
+    *Calibration.* Worst measured `value / (gamma_k * norm)` over every shape,
+    block-size configuration and matrix kind of the tests (dense spectra
+    random, clustered, repeated, graded; tridiagonals random, clustered,
+    repeated, graded, tiny off-diagonal, Wilkinson, Clement, zero
+    off-diagonal; scales that put the data near the overflow and underflow
+    thresholds of `lascl`), float64 / float32: sytrd 0.064 / 0.198, orgtr 0.025 / 0.067, steqr
+    `TZ-ZL` 0.035 / 0.042, steqr `Z^T Z - I` 0.069 / 0.036, eigenvalues against
+    the Sturm oracle 0.044 / 0.033, `Syev` `AZ-ZL` 0.153 / 0.135, column
+    residual 0.135 / 0.130, `Z^T Z - I` 0.137 / 0.115, eigenvalues 0.120 / 0.087
+    (`N` only 0.068 / 0.089). The first run used `8n+16` for sytrd and the
+    float32 worst case was 0.396, only a 2.5 times margin, so the constant was
+    doubled (0.198, 5 times): every constant now has at least a 5 times margin.
+    A counterexample would be a defect of the constant, to be raised and
+    stated again.
+
+    *Tests.* The oracle is exact arithmetic, not netlib: the exact `Q`, `T`
+    and Sturm counts in `math/big`. Blocked `lapack` and `netlib` run the same
+    `internal/ref` algorithms on different kernels, so comparing them (used for
+    NaN, Inf and the argument errors) shows the kernels agree, not that either
+    matches the Fortran. `FuzzSyev` has a committed corpus and ran 60 s
+    (1.29 million executions) without a failure before this change; the
+    coverage gate, `guardmut` and the fuzz lane apply.
+
+    *Measured* (2026-11-23, cfarm420, AMD EPYC 7773X, one core:
+    `taskset -c 9`, `GOMAXPROCS=1`; 1-minute load 3.6 to 4.3 before and after,
+    below the 8 limit). Go: `-test.benchtime 300ms -test.count 3`, median of
+    three. NumPy: `numpy.linalg.eigh` / `eigvalsh` (`UPLO='L'`, OpenBLAS with
+    one thread, so LAPACK `syevd`), median of three 300 ms runs, same
+    symmetric matrix (seed 3); the grid was run twice and the second round
+    differs from the first by at most 10 % in every cell (the A/A control).
+    Times in microseconds per call, `V` = eigenvectors, `N` = values only.
+    Go and NumPy ran back to back, not interleaved cell by cell.
+
+    | type | n | mode | lapack | netlib | NumPy (rounds 1 / 2) | lapack / NumPy |
+    |---|---|---|---|---|---|---|
+    | float64 | 64 | N | 231 | 318 | 169 / 163 | 1.4 |
+    | float64 | 64 | V | 851 | 982 | 349 / 348 | 2.4 |
+    | float64 | 128 | N | 1183 | 1759 | 645 / 607 | 1.8 |
+    | float64 | 128 | V | 4737 | 6302 | 1487 / 1563 | 3.2 |
+    | float64 | 256 | N | 6728 | 12274 | 2771 / 2825 | 2.4 |
+    | float64 | 256 | V | 31248 | 43465 | 7088 / 7036 | 4.4 |
+    | float64 | 512 | N | 40100 | 66801 | 14766 / 15296 | 2.7 |
+    | float64 | 512 | V | 218503 | 319415 | 39045 / 41203 | 5.6 |
+    | float32 | 64 | N | 243 | 271 | 163 / 179 | 1.5 |
+    | float32 | 64 | V | 786 | 783 | 355 / 355 | 2.2 |
+    | float32 | 128 | N | 1218 | 1576 | 647 / 614 | 1.9 |
+    | float32 | 128 | V | 4896 | 5733 | 1512 / 1440 | 3.2 |
+    | float32 | 256 | N | 6799 | 9718 | 3365 / 3405 | 2.0 |
+    | float32 | 256 | V | 30121 | 37726 | 8126 / 8404 | 3.7 |
+    | float32 | 512 | N | 38092 | 61896 | 17848 / 17811 | 2.1 |
+    | float32 | 512 | V | 189793 | 293382 | 46480 / 43533 | 4.1 |
+
+    Reading: the blocked `lapack` path beats `netlib` in every cell (up to
+    1.7 times at n = 512, the one tie being float32 n = 64 V), but **every
+    row is slower than NumPy, by 1.4 to 5.6 times: an open defect**, not
+    accepted. The gap grows with n and is largest with vectors. The cause is
+    not profiled yet; the hypotheses are the `steqr` rotations applied to `Z`
+    at level 1 (`lasr`) where `syevd` uses divide and conquer (`stedc`) with
+    level 3 products, and the `sytrd` / `orgtr` trailing updates not using the
+    packed GEMM driver. Profiling and those two are the next slices; the
+    contract (the error bounds above) is unchanged by them.
+
 ## What was moved from go-ndarray
 
 From `go-ndarray/ndarray` at `main` (v0.41.3, commit `8370f0f`):
