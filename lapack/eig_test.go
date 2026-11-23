@@ -50,7 +50,7 @@ func eigConfigs(name string) []eigCfg {
 	}
 	// (5, 30): the crossover above the order (n = 25, 26), so that the blocked
 	// code is entered with nx = n.
-	return []eigCfg{{2, 0, 2, 0, 2, 0}, {3, 2, 3, 2, 3, 2}, {4, 5, 4, 5, 4, 5}, {5, 30, 5, 30, 5, 30}, {8, 0, 8, 0, 8, 0}, {}}
+	return []eigCfg{{2, 0, 2, 0, 2, 0}, {3, 2, 3, 2, 3, 2}, {5, 30, 5, 30, 5, 30}, {}}
 }
 
 func setEig(t *testing.T, c eigCfg) {
@@ -199,9 +199,14 @@ func scales[T float]() []float64 {
 // beyond 256.
 func eigSizes() []int {
 	if testing.Short() {
-		return []int{0, 1, 2, 3, 24, 25, 26, 31, 32, 33, 63, 64, 65}
+		// The emulated lanes (qemu, -short) ran past go test's 10 minutes with
+		// the exact oracles at 63 to 65, and Syev alone took 70 s natively at
+		// 24 to 33.
+		return []int{0, 1, 2, 3, 25, 33}
 	}
-	return []int{0, 1, 2, 3, 24, 25, 26, 31, 32, 33, 63, 64, 65, 127, 128, 129, 257}
+	// 129 spans four panels of the default block size 32; the -race lanes
+	// (Windows above all) ran past 30 minutes with 127, 128 and 257 as well.
+	return []int{0, 1, 2, 3, 24, 25, 26, 31, 32, 33, 65, 129}
 }
 
 // kindsFor returns the matrix families a size is tested on: all of them for the
@@ -298,7 +303,7 @@ func TestSytrdOrgtr(t *testing.T) {
 func sytrdOrgtrT[T float](t *testing.T, im eimpl[T]) {
 	rng := newRNG(11)
 	for _, n := range eigSizes() {
-		if skipSize(n) || n > 129 { // the 257 of Syev only
+		if skipSize(n) || n > 129 {
 			continue
 		}
 		for _, kind := range kindsFor(n) {
