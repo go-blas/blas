@@ -503,6 +503,59 @@ returns.
     is the next step, a measurement away. This table is against netlib's ports,
     not a claim against OpenBLAS, which this repository has not run.
 
+12. **The symmetric eigensolver (unreleased): `Ssyev`/`Dsyev` and what they
+    need, ported from reference LAPACK 3.12, bounds stated as tested constants.**
+    The root package gains `Ssymv`/`Dsymv`, `Ssyr2`/`Dsyr2`, `Srot`/`Drot`,
+    `Sswap`/`Dswap`, `Scopy`/`Dcopy`; `lapack` gains `Syev` over `sytrd` (blocked
+    `latrd` panel plus the packed `Syr2k`, `sytd2` below the crossover), `orgtr`
+    (`orgql`/`org2l`; the upper form is the reference's), `steqr` (implicit QL/QR
+    with `lasr`) and `sterf` (root-free QL/QR), and the auxiliaries `lamch`,
+    `lartg`, `lae2`, `laev2`, `lasr`, `lasrt`, `lascl`, `laset`, `lanst`,
+    `lansy`. As for decision 10, the workspace arguments do not exist, and a
+    positive `info` (an unconverged eigenvalue) is a result with `err == nil`.
+    `netlib` holds the eigen routines on the unblocked reference kernels; the
+    BLAS routines above have no `netlib` twin, as they are the reference loops
+    already.
+
+    *Bounds.* With `u` the unit roundoff, `gamma_k = ku/(1-ku)`, each constant is
+    tested, not proved (the analyses of Demmel, *Applied Numerical Linear
+    Algebra*, section 5, and LAWN 22 give the shape `O(n) u ||A||`, not the
+    constant of this code): `A - Q T Q^T` in Frobenius norm at most
+    `gamma_{16n+32} ||A||_F` (`sytrd`); `Q^T Q - I` the same constant over
+    `sqrt(n)` (`orgtr`); `T Z - Z L` at most `gamma_{30n} ||T||_F` and the
+    eigenvalues of `steqr`/`sterf` within `gamma_{30n} ||T||_2` of an exact
+    Sturm-sequence oracle in 256-bit arithmetic; `Syev` residual `A Z - Z L`,
+    each column's residual, `Z^T Z - I` and the eigenvalues against the exact
+    ones, all at `gamma_{16n}`. `Symv` is within `gamma_{n+2}(|alpha||A||x| +
+    |beta||y|)` per element and `Syr2` within `gamma_4(|A| + |alpha|(|x||y|^T +
+    |y||x|^T))` (the reference loop is four operations deep, not three: the
+    first version of the test said gamma_3 and failed).
+
+    *Calibration.* Worst measured `value / (gamma_k * norm)` over every shape,
+    block-size configuration and matrix kind of the tests (dense spectra
+    random, clustered, repeated, graded; tridiagonals random, clustered,
+    repeated, graded, tiny off-diagonal, Wilkinson, Clement, zero
+    off-diagonal; scales that put the data near the overflow and underflow
+    thresholds of `lascl`), float64 / float32: sytrd 0.064 / 0.198, orgtr 0.025 / 0.067, steqr
+    `TZ-ZL` 0.035 / 0.042, steqr `Z^T Z - I` 0.069 / 0.036, eigenvalues against
+    the Sturm oracle 0.044 / 0.033, `Syev` `AZ-ZL` 0.153 / 0.135, column
+    residual 0.135 / 0.130, `Z^T Z - I` 0.137 / 0.115, eigenvalues 0.120 / 0.087
+    (`N` only 0.068 / 0.089). The first run used `8n+16` for sytrd and the
+    float32 worst case was 0.396, only a 2.5 times margin, so the constant was
+    doubled (0.198, 5 times): every constant now has at least a 5 times margin.
+    A counterexample would be a defect of the constant, to be raised and
+    stated again.
+
+    *Tests.* The oracle is exact arithmetic, not netlib: the exact `Q`, `T`
+    and Sturm counts in `math/big`. Blocked `lapack` and `netlib` run the same
+    `internal/ref` algorithms on different kernels, so comparing them (used for
+    NaN, Inf and the argument errors) shows the kernels agree, not that either
+    matches the Fortran. `FuzzSyev` has a committed corpus and ran 60 s
+    (1.29 million executions) without a failure before this change; the
+    coverage gate, `guardmut` and the fuzz lane apply.
+
+    *Measured:* the table below is added once the cfarm420 run is in.
+
 ## What was moved from go-ndarray
 
 From `go-ndarray/ndarray` at `main` (v0.41.3, commit `8370f0f`):

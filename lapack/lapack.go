@@ -81,6 +81,26 @@
 // constants changed; docs/design.md, decision 11, gives what was and was not
 // opened.
 //
+// The symmetric eigensolver (Syev and the routines it is made of) has bounds of
+// the same tested kind, in the Frobenius norm, A = A**T given by the triangle
+// uplo names, Q^ the orthogonal matrix Orgtr formed, T^ the tridiagonal matrix
+// Sytrd returned, L^ the eigenvalues and Z^ the eigenvectors Syev or Steqr
+// returned, and the eigenvalues compared with the exact ones of the same matrix
+// (a Sturm bisection in 256-bit arithmetic for a tridiagonal matrix, cyclic
+// Jacobi in 256-bit arithmetic for a dense one up to order 64):
+//
+//	Sytrd+Orgtr  ||A - Q^ T^ Q^**T||_F <= gamma_{16n+32} ||A||_F, and ||Q^**T Q^ - I||_F <= gamma_{16n+32} sqrt(n)
+//	Steqr        ||T Z^ - Z^ L^||_F <= gamma_{30n} ||T||_F, ||Z^**T Z^ - I||_F <= gamma_{30n} sqrt(n)
+//	Steqr, Sterf max|L^ - L| <= gamma_{30n} ||T||_2
+//	Syev         ||A Z^ - Z^ L^||_F <= gamma_{16n} ||A||_F (and per column), ||Z^**T Z^ - I||_F <= gamma_{16n} sqrt(n)
+//	Syev         max|L^ - L| <= gamma_{16n} ||A||_F
+//
+// the eigenvalues ascending. Each constant is at least four times the worst
+// ratio measured over the test corpus (docs/design.md, decision 12, tabulates
+// them), and is a tested constant, not a proved one. Data a few orders above the
+// subnormals has no relative accuracy below its own granularity, so the tests add
+// k times the smallest subnormal to the right-hand sides.
+//
 // # Algorithms
 //
 // Both factorizations are recursive (Toledo's recursive LU, as the reference's
@@ -100,6 +120,16 @@
 // are those of the reference signature with the workspace left in place (Dgeqrf
 // m 1, n 2, a 3, lda 4, tau 5; Dormqr side 1 ... ldc 10; Dorgqr m 1 ... tau 6).
 // Dormqr takes Trans for Q**T and refuses ConjTrans, as the real routine does.
+//
+// The eigensolver is the reference's (3.12.0), routine for routine: Syev scales
+// the matrix into [RMIN, RMAX] when its norm is outside, reduces it with Sytrd
+// (blocked, block 32, crossover 32, over Latrd and Syr2k, the level 2 work being
+// Symv), forms Q with Orgtr (Orgql or Orgqr, blocks 32 and crossover 128), and
+// runs the implicit QL or QR iteration of Steqr (30 iterations per eigenvalue
+// at most, else INFO > 0, the number of off-diagonal elements not converged), or
+// Sterf (Pal-Walker-Kahan, no square roots) when no vectors are wanted. The flags
+// are the typed Jobz and Compz. Parameter numbers are the reference's
+// (Dsyev jobz 1, uplo 2, n 3, a 4, lda 5, w 6; Dsteqr compz 1 ... ldz 6).
 package lapack
 
 import (
@@ -131,11 +161,15 @@ type ops[T real] struct {
 	trmm func(side blas.Side, uplo blas.Uplo, tA blas.Transpose, diag blas.Diag, m, n int, alpha T, a []T, lda int, b []T, ldb int) error
 	gemv func(t blas.Transpose, m, n int, alpha T, a []T, lda int, x []T, incx int, beta T, y []T, incy int) error
 	axpy func(n int, alpha T, x []T, incx int, y []T, incy int) error
+	// The symmetric level 2 and 3 routines of the eigensolver.
+	symv  func(uplo blas.Uplo, n int, alpha T, a []T, lda int, x []T, incx int, beta T, y []T, incy int) error
+	syr2  func(uplo blas.Uplo, n int, alpha T, x []T, incx int, y []T, incy int, a []T, lda int) error
+	syr2k func(uplo blas.Uplo, trans blas.Transpose, n, k int, alpha T, a []T, lda int, b []T, ldb int, beta T, c []T, ldc int) error
 }
 
 var (
-	dOps = &ops[float64]{blas.Dgemm, blas.Dtrsm, blas.Dsyrk, blas.Dtrmm, blas.Dgemv, blas.Daxpy}
-	sOps = &ops[float32]{blas.Sgemm, blas.Strsm, blas.Ssyrk, blas.Strmm, blas.Sgemv, blas.Saxpy}
+	dOps = &ops[float64]{blas.Dgemm, blas.Dtrsm, blas.Dsyrk, blas.Dtrmm, blas.Dgemv, blas.Daxpy, blas.Dsymv, blas.Dsyr2, blas.Dsyr2k}
+	sOps = &ops[float32]{blas.Sgemm, blas.Strsm, blas.Ssyrk, blas.Strmm, blas.Sgemv, blas.Saxpy, blas.Ssymv, blas.Ssyr2, blas.Ssyr2k}
 )
 
 // Dgetrf computes the LU factorization with partial pivoting of the m x n

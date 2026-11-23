@@ -23,6 +23,7 @@ First release line, real routines only (the LAPACK rows since v0.4.0 and v0.5.0)
 |---|---|
 | LAPACK (package `lapack`, v0.4.0) | `Sgetrf`/`Dgetrf`, `Sgetrs`/`Dgetrs`, `Spotrf`/`Dpotrf`, `Spotrs`/`Dpotrs`: LU with partial pivoting and Cholesky, and their solves, recursive and blocked over the packed GEMM, TRSM and SYRK; a factorization returns `(info, err)`, a positive `info` being a result (see [docs/design.md](docs/design.md) decision 10) |
 | LAPACK, QR (package `lapack`, v0.5.0) | `Sgeqrf`/`Dgeqrf`, `Sormqr`/`Dormqr`, `Sorgqr`/`Dorgqr`: Householder QR, multiplication by Q or Q**T, and generation of Q, the reference's blocked algorithms over the packed GEMM and TRMM; the bound's constant is tested, not proved (see [docs/design.md](docs/design.md) decision 11) |
+| LAPACK, symmetric eigenproblem (package `lapack`, unreleased) | `Ssyev`/`Dsyev`: tridiagonal reduction (`sytrd`), `orgtr`, implicit QL/QR (`steqr`) and root-free QL (`sterf`), with `Ssymv`/`Dsymv`, `Ssyr2`/`Dsyr2`, `Srot`/`Drot`, `Sswap`/`Dswap`, `Scopy`/`Dcopy`; bounds are tested constants (see [docs/design.md](docs/design.md) decision 12) |
 | 3 | `Strsm`/`Dtrsm`, `Strmm`/`Dtrmm`, `Ssyrk`/`Dsyrk`, `Ssyr2k`/`Dsyr2k`, `Ssymm`/`Dsymm`, blocked on the packed GEMM (a residual bound for trsm, see [docs/design.md](docs/design.md) decision 9) |
 | 3 | `Sgemm`, `Dgemm`; `SgemmStrided`, `DgemmStrided` (row and column stride per operand, as BLIS's `bli_?gemm`, no copy of a sliced or transposed view); `HasSgemmKernel` |
 | 2 | `Sgemv`, `Dgemv` |
@@ -110,6 +111,25 @@ stored reflectors, `gamma_{8(m+n)+16}`, a tested constant (LAWN 22 shows the
 blocked form keeps the Householder analysis, with changed constants); `netlib`
 has `dgeqrf.f`, `dgeqr2.f`, `dlarfg.f`, `dlarf.f`, `dlarft.f`, `dlarfb.f`,
 `dorgqr.f`, `dorg2r.f`, `dormqr.f`, `dorm2r.f` ports.
+
+### Symmetric eigensolver (unreleased)
+
+```go
+// Eigenvalues of the symmetric matrix in the uplo triangle of a, ascending in w;
+// with lapack.EigenvaluesAndVectors a holds the orthonormal eigenvectors on return.
+info, err := lapack.Dsyev(lapack.EigenvaluesAndVectors, blas.Upper, n, a, lda, w)
+```
+
+`Ssyev`/`Dsyev` (reference LAPACK 3.12's `xsyev`: `xsytrd`, `xorgtr`, `xsteqr`,
+`xsterf`) and the routines they need are ported exactly: `Ssymv`/`Dsymv`,
+`Ssyr2`/`Dsyr2`, `Srot`/`Drot`, `Sswap`/`Dswap`, `Scopy`/`Dcopy` in the root
+package; `lamch`, `lartg`, `lae2`, `laev2`, `lasr`, `lasrt`, `lascl`, `laset`,
+`lanst`, `lansy`, `sytd2`, `latrd`, `sytrd`, `steqr`, `sterf`, `org2l`, `orgql`,
+`orgtr` in `lapack`. A positive `info` (an eigenvalue iteration that did not
+converge) is a result, as for the factorizations. The bounds (reduction,
+orthogonality, residual, eigenvalues) are tested constants, not proofs; they are
+listed with their measured worst cases in [docs/design.md](docs/design.md)
+decision 12. `netlib` has the eigenvalue routines' ports (not the BLAS ones).
 
 ## Next
 
