@@ -30,9 +30,8 @@ var MaxIt = 30
 // The calls of the symmetric eigensolver to the BLAS, with the quick returns of the
 // reference.
 func (k *Kern[T]) gemvx(notA bool, m, n int, alpha T, a []T, lda int, x []T, incx int, beta T, y []T) {
-	if m == 0 || n == 0 || (alpha == 0 && beta == 1) {
-		return
-	}
+	// No quick return here: Gemv has the one of DGEMV (m = 0 or n = 0), and
+	// alpha is +-1 in every call.
 	k.Gemv(notA, m, n, alpha, a, lda, x, incx, beta, y, 1)
 }
 
@@ -667,13 +666,9 @@ func Sterf[T Float](n int, d, e []T) (info int) {
 // 0: n*MaxIt iterations were not enough, info being the number of off-diagonal
 // elements not converged to zero.
 func Steqr[T Float](icompz, n int, d, e []T, z []T, ldz int) (info int) {
-	// n >= 1: the callers return for n = 0.
-	if n == 1 {
-		if icompz == 2 {
-			z[0] = 1
-		}
-		return 0
-	}
+	// The reference's n = 1 quick return (z = 1 for icompz = 2) is not needed: the
+	// general path sets z to the identity, finds no block and leaves d alone
+	// (TestOneByOne). n = 0 likewise does nothing (TestSteqrEmpty).
 	// Determine the unit roundoff and over/underflow thresholds.
 	eps := epsRound[T]()
 	eps2 := T(eps * eps)

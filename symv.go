@@ -79,9 +79,8 @@ func Srot(n int, x []float32, incx int, y []float32, incy int, c, s float32) err
 }
 
 func rot[T real](name string, n int, x []T, incx int, y []T, incy int, c, s T) error {
-	if n <= 0 { // guard
-		return nil
-	}
+	// A non-positive n passes both checks (Vec1 reads nothing) and Rot's loop
+	// does not run: no quick return is needed.
 	if p := check.Vec1(2, n, incx, len(x)); p != 0 { // guard
 		return argErr(name, p)
 	}
@@ -104,9 +103,7 @@ func Sswap(n int, x []float32, incx int, y []float32, incy int) error {
 }
 
 func swap[T real](name string, n int, x []T, incx int, y []T, incy int) error {
-	if n <= 0 { // guard
-		return nil
-	}
+	// As in rot, a non-positive n needs no quick return.
 	if p := check.Vec1(2, n, incx, len(x)); p != 0 { // guard
 		return argErr(name, p)
 	}
@@ -129,9 +126,7 @@ func Scopy(n int, x []float32, incx int, y []float32, incy int) error {
 }
 
 func copyVec[T real](name string, n int, x []T, incx int, y []T, incy int) error {
-	if n <= 0 { // guard
-		return nil
-	}
+	// As in rot, a non-positive n needs no quick return.
 	if p := check.Vec1(2, n, incx, len(x)); p != 0 { // guard
 		return argErr(name, p)
 	}

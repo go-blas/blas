@@ -110,9 +110,7 @@ func steqr[T ref.Float](name string, compz lapack.Compz, n int, d, e, z []T, ldz
 	if p := check.Steqr(byte(compz), n, ldz); p != 0 { // guard
 		return -p, argErr(name, p)
 	}
-	if n == 0 { // guard
-		return 0, nil
-	}
+	// n = 0 needs no quick return (see lapack.steqr, TestSteqrEmpty).
 	if p := check.SteqrLens(byte(compz), n, ldz, len(d), len(e), len(z)); p != 0 { // guard
 		return -p, argErr(name, p)
 	}

@@ -122,9 +122,8 @@ func steqr[T real](name string, compz Compz, n int, d, e, z []T, ldz int) (int, 
 	if p := check.Steqr(byte(compz), n, ldz); p != 0 { // guard
 		return -p, argErr(name, p)
 	}
-	if n == 0 { // guard
-		return 0, nil
-	}
+	// n = 0 needs no quick return: the length checks ask for nothing and
+	// ref.Steqr does no work (TestSteqrEmpty).
 	if p := check.SteqrLens(byte(compz), n, ldz, len(d), len(e), len(z)); p != 0 { // guard
 		return -p, argErr(name, p)
 	}

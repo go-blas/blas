@@ -77,6 +77,22 @@ func TestLaev2Edges(t *testing.T) {
 	}
 }
 
+// TestAxpyQuickReturns: the reference's xAXPY returns before reading x when n <= 0
+// or alpha = 0, so a NaN in x does not reach y.
+func TestAxpyQuickReturns(t *testing.T) {
+	y := []float64{1, 2}
+	axpy(2, 0, []float64{math.NaN(), math.Inf(1)}, y)
+	if y[0] != 1 || y[1] != 2 {
+		t.Fatalf("alpha = 0: %v", y)
+	}
+	axpy(0, 3, nil, y)
+	axpy(-1, 3, nil, y)
+	axpy(2, 1, []float64{1, 1}, y)
+	if y[0] != 2 || y[1] != 3 {
+		t.Fatalf("%v", y)
+	}
+}
+
 func TestLasrtEdges(t *testing.T) {
 	Lasrt(0, []float64(nil))
 	d := []float64{2}

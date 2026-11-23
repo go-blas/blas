@@ -57,15 +57,13 @@ func Lartg[T Float](f, g T) (c, s, r T) {
 // 'U' (upper triangular), the m x n matrix a: it multiplies a by cto/cfrom without
 // over- or underflow. cfrom must be neither zero nor NaN, nor cto NaN.
 func Lascl[T Float](typ byte, cfrom, cto T, m, n int, a []T, lda int) {
-	if n == 0 || m == 0 {
-		return
-	}
+	// m = 0 or n = 0 needs no quick return: the loops below do not run (the
+	// reference returns first, and reads nothing either way).
 	smlnum := SafeMin[T]()
 	bignum := T(1 / smlnum)
 	cfromc, ctoc := cfrom, cto
-	for {
+	for done := false; !done; {
 		var mul T
-		var done bool
 		cfrom1 := T(cfromc * smlnum)
 		if cfrom1 == cfromc {
 			// cfromc is an inf: multiply by a correctly signed zero for finite ctoc,
@@ -89,9 +87,6 @@ func Lascl[T Float](typ byte, cfrom, cto T, m, n int, a []T, lda int) {
 			default:
 				mul = T(ctoc / cfromc)
 				done = true
-				if mul == 1 {
-					return
-				}
 			}
 		}
 		for j := 0; j < n; j++ {
@@ -106,9 +101,6 @@ func Lascl[T Float](typ byte, cfrom, cto T, m, n int, a []T, lda int) {
 				a[i+j*lda] = T(a[i+j*lda] * mul)
 			}
 		}
-		if done {
-			return
-		}
 	}
 }
 
@@ -116,9 +108,8 @@ func Lascl[T Float](typ byte, cfrom, cto T, m, n int, a []T, lda int) {
 // quicksort with insertion sort for short partitions, as the reference does.
 func Lasrt[T Float](n int, d []T) {
 	const sel = 20
-	if n <= 1 {
-		return
-	}
+	// n <= 1 needs no quick return: the partition loop leaves such a range
+	// unchanged (TestLasrtEdges).
 	var stack [32][2]int
 	stkpnt := 0
 	stack[0] = [2]int{1, n}

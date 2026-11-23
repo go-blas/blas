@@ -9,6 +9,31 @@ import (
 	"github.com/go-blas/blas/internal/oracle"
 )
 
+// TestSyr2AlphaZero: alpha = 0 returns before the slice lengths are read, as the
+// reference does (it tests ALPHA after the argument checks only).
+func TestSyr2AlphaZero(t *testing.T) {
+	if err := blas.Dsyr2(blas.Upper, 3, 0, nil, 1, nil, 1, nil, 3); err != nil {
+		t.Fatalf("alpha = 0 with empty slices: %v", err)
+	}
+	if err := blas.Ssyr2(blas.Lower, 3, 0, nil, 1, nil, 1, nil, 3); err != nil {
+		t.Fatalf("alpha = 0 with empty slices: %v", err)
+	}
+	// n <= 0 reads nothing, whatever the increments.
+	for _, n := range []int{0, -3} {
+		for _, inc := range []int{1, -2, 0} {
+			if err := blas.Drot(n, nil, inc, nil, inc, 1, 0); err != nil {
+				t.Fatalf("Drot n=%d inc=%d: %v", n, inc, err)
+			}
+			if err := blas.Sswap(n, nil, inc, nil, inc); err != nil {
+				t.Fatalf("Sswap n=%d inc=%d: %v", n, inc, err)
+			}
+			if err := blas.Dcopy(n, nil, inc, nil, inc); err != nil {
+				t.Fatalf("Dcopy n=%d inc=%d: %v", n, inc, err)
+			}
+		}
+	}
+}
+
 // simpl is one element type's Symv, Syr2, Rot, Swap and Copy.
 type simpl[T float] struct {
 	symv func(uplo blas.Uplo, n int, alpha T, a []T, lda int, x []T, incx int, beta T, y []T, incy int) error
